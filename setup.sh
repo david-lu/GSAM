@@ -1,13 +1,13 @@
 (
   echo "Downloading SAM 2 checkpoints..."
-  cd checkpoints
-  ./download_checkpoints.sh
+  cd checkpoints || exit 1
+  bash download_ckpts.sh
 )
 
 (
   echo "Downloading DINO checkpoints..."
-  cd gdino_checkpoints
-  ./download_checkpoints.sh
+  cd gdino_checkpoints || exit 1
+  bash download_ckpts.sh
 )
 
 pip install torch torchvision torchaudio transformers opencv-python supervision
