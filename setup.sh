@@ -10,7 +10,7 @@
   ./download_checkpoints.sh
 )
 
-#pip install torch torchvision torchaudio transformers
+pip install torch torchvision torchaudio transformers opencv-python supervision
 
 pip install -e .
 pip install --no-build-isolation -e grounding_dino
