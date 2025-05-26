@@ -12,7 +12,6 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 from utils.track_utils import sample_points_from_masks
 from utils.video_utils import create_video_from_images
-import tempfile
 
 
 # === Global Configuration ===
@@ -27,10 +26,12 @@ sam2_checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
 model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
 video_predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
 sam2_image_model = build_sam2(model_cfg, sam2_checkpoint)
-image_predictor = SAM2ImagePredictor(sam2_image_model)
+image_predictor = SAM2ImagePredictor(
+    sam2_image_model, max_hole_area=16, max_sprinkle_area=4)
 
 # === Load Grounding DINO ===
-dino_model_id = "IDEA-Research/grounding-dino-tiny"
+dino_model_id = "IDEA-Research/grounding-dino-base"
+# dino_model_id = "IDEA-Research/grounding-dino-tiny"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = AutoProcessor.from_pretrained(dino_model_id)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_model_id).to(device)
@@ -137,17 +138,62 @@ def track_object_in_video(
             mask=masks,
             class_id=np.array(object_ids, dtype=np.int32),
         )
-        annotated_frame = sv.BoxAnnotator().annotate(scene=img.copy(), detections=detections)
-        annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
-        annotated_frame = sv.MaskAnnotator().annotate(scene=annotated_frame, detections=detections)
+        masked_frame = mask_image_with_white_background_from_detections(img.copy(), detections)
+        # annotated_frame = sv.BoxAnnotator().annotate(scene=img.copy(), detections=detections)
+        # annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
+        # annotated_frame = sv.MaskAnnotator().annotate(scene=annotated_frame, detections=detections)
 
-        out_path = os.path.join(output_video_dir, f"annotated_frame_{frame_idx:05d}.jpg")
-        cv2.imwrite(out_path, annotated_frame)
+        out_path = os.path.join(output_video_dir, f"masked_frame_{frame_idx:05d}.jpg")
+        cv2.imwrite(out_path, masked_frame)
         saved_frame_paths.append(out_path)
 
     create_video_from_images(output_video_dir, os.path.join(output_video_dir, "tracked_output.mp4"))
     return saved_frame_paths
 
+def clean_masks_with_closing(
+    masks: np.ndarray,
+    dilate_iter: int = 1,
+    erode_iter: int = 1,
+    kernel_size: int = 3,
+) -> np.ndarray:
+    """
+    Applies morphological closing (dilate then erode) to clean each binary mask.
+
+    Args:
+        masks (np.ndarray): Array of shape (N, H, W) containing N binary masks.
+        dilate_iter (int): Number of dilation iterations.
+        erode_iter (int): Number of erosion iterations.
+        kernel_size (int): Size of the structuring element.
+
+    Returns:
+        np.ndarray: Cleaned masks of shape (N, H, W) as boolean array.
+    """
+    cleaned = []
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+
+    for i in range(masks.shape[0]):
+        mask = (masks[i] * 255).astype(np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=dilate_iter)
+        mask = cv2.erode(mask, kernel, iterations=erode_iter)
+        cleaned.append(mask > 0)
+
+    return np.stack(cleaned, axis=0)
+
+
+
+def mask_image_with_white_background_from_detections(
+    image: np.ndarray,
+    detections: sv.Detections,
+) -> np.ndarray:
+    if detections.mask is None or len(detections.mask) == 0:
+        return np.ones_like(image, dtype=np.uint8) * 255
+
+    # cleaned_masks = clean_masks_with_closing(detections.mask)
+
+    combined_mask = np.any(detections.mask, axis=0)
+    white_bg = np.ones_like(image, dtype=np.uint8) * 255
+    masked_image = np.where(combined_mask[..., None], image, white_bg)
+    return masked_image
 
 
 def extract_frames_from_video(video_path, output_dir):
@@ -222,7 +268,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--prompt", type=str, default="animated animation cel.",
+        "--prompt", type=str, default="animated characters cel. object engaged by characters.",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
