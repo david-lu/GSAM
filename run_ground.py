@@ -27,7 +27,7 @@ model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
 video_predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
 sam2_image_model = build_sam2(model_cfg, sam2_checkpoint)
 image_predictor = SAM2ImagePredictor(
-    sam2_image_model, max_hole_area=16, max_sprinkle_area=4)
+    sam2_image_model, mask_threshold=0.5, max_hole_area=8, max_sprinkle_area=128)
 
 # === Load Grounding DINO ===
 dino_model_id = "IDEA-Research/grounding-dino-base"
@@ -138,7 +138,7 @@ def track_object_in_video(
             mask=masks,
             class_id=np.array(object_ids, dtype=np.int32),
         )
-        masked_frame = mask_image_with_white_background_from_detections(img.copy(), detections)
+        masked_frame = mask_image_with_detections(img.copy(), detections)
         # annotated_frame = sv.BoxAnnotator().annotate(scene=img.copy(), detections=detections)
         # annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
         # annotated_frame = sv.MaskAnnotator().annotate(scene=annotated_frame, detections=detections)
@@ -152,9 +152,9 @@ def track_object_in_video(
 
 def clean_masks_with_closing(
     masks: np.ndarray,
-    dilate_iter: int = 1,
-    erode_iter: int = 1,
-    kernel_size: int = 3,
+    dilate_iter: int = 2,
+    erode_iter: int = 2,
+    kernel_size: int = 5,
 ) -> np.ndarray:
     """
     Applies morphological closing (dilate then erode) to clean each binary mask.
@@ -181,26 +181,26 @@ def clean_masks_with_closing(
 
 
 
-def mask_image_with_white_background_from_detections(
+def mask_image_with_detections(
     image: np.ndarray,
     detections: sv.Detections,
 ) -> np.ndarray:
     if detections.mask is None or len(detections.mask) == 0:
         return np.ones_like(image, dtype=np.uint8) * 255
 
-    # cleaned_masks = clean_masks_with_closing(detections.mask)
+    cleaned_masks = clean_masks_with_closing(detections.mask)
 
-    combined_mask = np.any(detections.mask, axis=0)
+    combined_mask = np.any(cleaned_masks, axis=0)
     white_bg = np.ones_like(image, dtype=np.uint8) * 255
     masked_image = np.where(combined_mask[..., None], image, white_bg)
     return masked_image
 
 
-def extract_frames_from_video(video_path, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
+def extract_frames_from_video(video_path, output_frames_dir):
+    os.makedirs(output_frames_dir, exist_ok=True)
     # Clear existing contents
-    for f in os.listdir(output_dir):
-        os.remove(os.path.join(output_dir, f))
+    for f in os.listdir(output_frames_dir):
+        os.remove(os.path.join(output_frames_dir, f))
 
     cap = cv2.VideoCapture(video_path)
     frame_idx = 0
@@ -208,15 +208,15 @@ def extract_frames_from_video(video_path, output_dir):
         ret, frame = cap.read()
         if not ret:
             break
-        frame_path = os.path.join(output_dir, f"{frame_idx:05d}.jpg")
+        frame_path = os.path.join(output_frames_dir, f"{frame_idx:05d}.jpg")
         cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
         frame_idx += 1
     cap.release()
 
 
 def track_from_video_file(
-    video_path: str,
     text_prompt: str,
+    input_video_path: str,
     output_video_path: str,
     prompt_type: str = "box"
 ) -> str:
@@ -236,7 +236,7 @@ def track_from_video_file(
         os.makedirs(folder)
 
     # Step 1: Extract video to frames
-    extract_frames_from_video(video_path, input_frame_dir)
+    extract_frames_from_video(input_video_path, input_frame_dir)
 
     # Step 2: Run tracking
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -258,17 +258,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Track objects in a video using Grounded-SAM2")
 
     parser.add_argument(
-        "--video_path", type=str, required=True,
+        "--input", type=str, required=True,
         help="Path to input video file (e.g., .mp4)"
     )
 
     parser.add_argument(
-        "--output_path", type=str, required=True,
+        "--output", type=str, required=True,
         help="Path to output video file (e.g., output.mp4)"
     )
 
     parser.add_argument(
-        "--prompt", type=str, default="animated characters cel. object engaged by characters.",
+        "--prompt", type=str, default="animation characters maybe holding object.",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
@@ -281,8 +281,8 @@ if __name__ == "__main__":
 
     # Run the pipeline
     output = track_from_video_file(
-        video_path=args.video_path,
+        input_video_path=args.input,
         text_prompt=args.prompt,
-        output_video_path=args.output_path,
+        output_video_path=args.output,
         prompt_type=args.prompt_type
     )
