@@ -153,7 +153,7 @@ def track_object_in_video(
 def clean_masks_with_closing(
     masks: np.ndarray,
     dilate_iter: int = 2,
-    erode_iter: int = 2,
+    erode_iter: int = 1,
     kernel_size: int = 5,
 ) -> np.ndarray:
     """
