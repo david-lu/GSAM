@@ -1,5 +1,6 @@
 # === Imports and Setup ===
 import os
+import shutil
 
 import cv2
 import torch
@@ -12,7 +13,7 @@ from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 
 from utils.common_utils import mask_image_with_detections
 from utils.track_utils import sample_points_from_masks
-from utils.video_utils import create_video_from_images, track_from_video_file
+from utils.video_utils import create_video_from_images, extract_frames_from_video
 
 # === Global Configuration ===
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -169,6 +170,46 @@ def track_object_in_video(
     # Combine all annotated frames into a final output video
     create_video_from_images(output_video_dir, os.path.join(output_video_dir, "tracked_output.mp4"))
     return saved_frame_paths
+
+
+def track_from_video_file(
+    text_prompt: str,
+    input_video_path: str,
+    output_video_path: str,
+    prompt_type: str = "box"
+) -> str:
+    """
+    Extracts frames from a video, runs object tracking, and saves the annotated output video.
+    Uses local persistent temp folders: ./input_frames and ./output_frames
+
+    Returns the path to the final output video.
+    """
+    input_frame_dir = ".tmp/input_frames"
+    output_frame_dir = ".tmp/output_frames"
+
+    # Ensure input/output frame folders are clean
+    for folder in [input_frame_dir, output_frame_dir]:
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
+        os.makedirs(folder)
+
+    # Step 1: Extract video to frames
+    extract_frames_from_video(input_video_path, input_frame_dir)
+
+    # Step 2: Run tracking
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        track_object_in_video(
+            input_video_dir=input_frame_dir,
+            output_video_dir=output_frame_dir,
+            text_prompt=text_prompt,
+            prompt_type=prompt_type
+        )
+
+    # Step 3: Convert annotated frames to final video
+    create_video_from_images(output_frame_dir, output_video_path)
+
+    return output_video_path
+
 
 if __name__ == "__main__":
     import argparse
