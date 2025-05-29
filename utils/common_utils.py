@@ -163,3 +163,48 @@ class CommonUtils:
     def random_color():
         """random color generator"""
         return (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+
+def clean_masks_with_closing(
+    masks: np.ndarray,
+    dilate_iter: int = 2,
+    erode_iter: int = 1,
+    kernel_size: int = 5,
+) -> np.ndarray:
+    """
+    Applies morphological closing (dilate then erode) to clean each binary mask.
+
+    Args:
+        masks (np.ndarray): Array of shape (N, H, W) containing N binary masks.
+        dilate_iter (int): Number of dilation iterations.
+        erode_iter (int): Number of erosion iterations.
+        kernel_size (int): Size of the structuring element.
+
+    Returns:
+        np.ndarray: Cleaned masks of shape (N, H, W) as boolean array.
+    """
+    cleaned = []
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+
+    for i in range(masks.shape[0]):
+        mask = (masks[i] * 255).astype(np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=dilate_iter)
+        mask = cv2.erode(mask, kernel, iterations=erode_iter)
+        cleaned.append(mask > 0)
+
+    return np.stack(cleaned, axis=0)
+
+
+def mask_image_with_detections(
+    image: np.ndarray,
+    detections: sv.Detections,
+) -> np.ndarray:
+    if detections.mask is None or len(detections.mask) == 0:
+        return np.ones_like(image, dtype=np.uint8) * 255
+
+    cleaned_masks = clean_masks_with_closing(detections.mask)
+
+    combined_mask = np.any(cleaned_masks, axis=0)
+    white_bg = np.ones_like(image, dtype=np.uint8) * 255
+    masked_image = np.where(combined_mask[..., None], image, white_bg)
+    return masked_image
