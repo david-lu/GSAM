@@ -43,23 +43,28 @@ def track_object_in_video(
     text_prompt: str,
     prompt_type: str = "box",
 ) -> list[str]:
+    # Get and sort frame names from the input directory
     frame_names = [
         p for p in os.listdir(input_video_dir)
         if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
 
+    # Initialize video predictor's inference state
     inference_state = video_predictor.init_state(video_path=input_video_dir)
 
-    ann_frame_idx = 0
+    ann_frame_idx = 0  # Index of the annotation frame (usually the first frame)
 
+    # Load the first frame for annotation
     img_path = os.path.join(input_video_dir, frame_names[ann_frame_idx])
     image = Image.open(img_path)
 
+    # Run grounding model to get object boxes/labels from text prompt
     inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = grounding_model(**inputs)
 
+    # Post-process outputs to get detected boxes and labels
     results = processor.post_process_grounded_object_detection(
         outputs,
         inputs.input_ids,
@@ -68,10 +73,12 @@ def track_object_in_video(
         target_sizes=[image.size[::-1]]
     )
 
+    # Prepare SAM2 image predictor with the RGB image
     image_predictor.set_image(np.array(image.convert("RGB")))
     input_boxes = results[0]["boxes"].cpu().numpy()
     OBJECTS = results[0]["labels"]
 
+    # Run segmentation (SAM2) for each detected box
     masks, scores, logits = image_predictor.predict(
         point_coords=None,
         point_labels=None,
@@ -79,6 +86,7 @@ def track_object_in_video(
         multimask_output=False,
     )
 
+    # Normalize mask dimensions for consistent processing
     if masks.ndim == 3:
         masks = masks[None]
         scores = scores[None]
@@ -88,7 +96,9 @@ def track_object_in_video(
 
     assert prompt_type in ["point", "box", "mask"]
 
+    # Add objects to the video predictor using the chosen prompt type
     if prompt_type == "point":
+        # Use sampled points from masks as prompts
         all_sample_points = sample_points_from_masks(masks=masks, num_points=10)
         for object_id, (label, points) in enumerate(zip(OBJECTS, all_sample_points), start=1):
             labels = np.ones((points.shape[0]), dtype=np.int32)
@@ -100,6 +110,7 @@ def track_object_in_video(
                 labels=labels,
             )
     elif prompt_type == "box":
+        # Use detected boxes as prompts
         for object_id, (label, box) in enumerate(zip(OBJECTS, input_boxes), start=1):
             video_predictor.add_new_points_or_box(
                 inference_state=inference_state,
@@ -108,6 +119,7 @@ def track_object_in_video(
                 box=box,
             )
     elif prompt_type == "mask":
+        # Use segmentation masks as prompts
         for object_id, (label, mask) in enumerate(zip(OBJECTS, masks), start=1):
             labels = np.ones((1), dtype=np.int32)
             video_predictor.add_new_mask(
@@ -117,6 +129,7 @@ def track_object_in_video(
                 mask=mask
             )
 
+    # Propagate object masks through the video
     video_segments = {}
     for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(inference_state):
         video_segments[out_frame_idx] = {
@@ -124,32 +137,38 @@ def track_object_in_video(
             for i, out_obj_id in enumerate(out_obj_ids)
         }
 
+    # Prepare output directory and ID-to-label mapping
     os.makedirs(output_video_dir, exist_ok=True)
     ID_TO_OBJECTS = {i: obj for i, obj in enumerate(OBJECTS, start=1)}
     saved_frame_paths = []
 
+    # For each frame, overlay the masks on the original image and save
     for frame_idx, segments in video_segments.items():
         img = cv2.imread(os.path.join(input_video_dir, frame_names[frame_idx]))
         object_ids = list(segments.keys())
         masks = np.concatenate(list(segments.values()), axis=0)
 
+        # Create detections object for annotation utilities
         detections = sv.Detections(
             xyxy=sv.mask_to_xyxy(masks),
             mask=masks,
             class_id=np.array(object_ids, dtype=np.int32),
         )
+        # Mask the image using the detected object masks
         masked_frame = mask_image_with_detections(img.copy(), detections)
+        # Optionally, you can annotate with boxes/labels/masks (commented out)
         # annotated_frame = sv.BoxAnnotator().annotate(scene=img.copy(), detections=detections)
         # annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
         # annotated_frame = sv.MaskAnnotator().annotate(scene=annotated_frame, detections=detections)
 
+        # Save the masked frame
         out_path = os.path.join(output_video_dir, f"masked_frame_{frame_idx:05d}.jpg")
         cv2.imwrite(out_path, masked_frame)
         saved_frame_paths.append(out_path)
 
+    # Combine all annotated frames into a final output video
     create_video_from_images(output_video_dir, os.path.join(output_video_dir, "tracked_output.mp4"))
     return saved_frame_paths
-
 
 if __name__ == "__main__":
     import argparse

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import supervision as sv
 import random
 
+# TODO: Don't use a class for these static functions
 class CommonUtils:
     @staticmethod
     def creat_dirs(path):
