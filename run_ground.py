@@ -63,8 +63,8 @@ def track_object_in_video(
     results = processor.post_process_grounded_object_detection(
         outputs,
         inputs.input_ids,
-        box_threshold=0.25,
-        text_threshold=0.3,
+        box_threshold=0.35,
+        text_threshold=0.35,
         target_sizes=[image.size[::-1]]
     )
 
@@ -268,7 +268,8 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--prompt", type=str, default="animation characters maybe holding object.",
+        "--prompt", type=str, default=
+        "animated character. animated clothing.",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 

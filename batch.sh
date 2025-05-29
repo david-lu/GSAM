@@ -1,6 +1,6 @@
 #!/bin/bash
 
-INPUT_DIR="/home/chicken/Videos/input"
+INPUT_DIR="/home/chicken/Videos/split_adaptive/sword_in_the_stone/"
 OUTPUT_DIR="/home/chicken/Videos/output"
 SCRIPT_DIR="/home/chicken/Documents/GitHub/GSAM"
 PYTHON_SCRIPT="$SCRIPT_DIR/run_ground.py"
