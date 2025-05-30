@@ -29,7 +29,7 @@ class CommonUtils:
     @staticmethod
     def get_detection_from_mask(
             mask: np.ndarray,
-            json_data_labels: dict) -> Tuple[sv.Detections, List[Tuple[Any, Any]]] | None:
+            json_data_labels: dict) -> Tuple[sv.Detections | None, List[Tuple[Any, Any]] | None]:
 
         print('json_data_labels', json_data_labels)
         # color map
@@ -44,7 +44,8 @@ class CommonUtils:
                 all_object_masks.append(object_mask[None])
 
         if len(all_object_masks) == 0:
-            return None
+            return None, None
+
         # get n masks: (n, h, w)
         all_object_masks = np.concatenate(all_object_masks, axis=0)
 
@@ -108,6 +109,9 @@ class CommonUtils:
                 json_data_labels = json_data["labels"].items()
 
                 detections, labels = CommonUtils.get_detection_from_mask(mask, json_data_labels)
+                if detections or labels is None:
+                    continue
+
                 label_texts = [f"{key}: {name}" for key, name in labels]
 
                 box_annotator = sv.BoxAnnotator()
@@ -125,11 +129,23 @@ class CommonUtils:
                 print(f"Annotated image saved as {output_image_path}")
 
     @staticmethod
-    def draw_cleaned_mask(raw_image_path, mask_path, json_path, output_path):
+    def draw_cleaned_masks(
+            raw_image_path: str,
+            mask_path: str,
+            json_path: str,
+            output_path: str):
         CommonUtils.creat_dirs(output_path)
         raw_image_name_list = os.listdir(raw_image_path)
         raw_image_name_list.sort()
         for raw_image_name in raw_image_name_list:
+
+            # load image
+            image_path = os.path.join(raw_image_path, raw_image_name)
+            image = cv2.imread(image_path)
+            if image is None:
+                raise FileNotFoundError("Image file not found.")
+
+            file_path = os.path.join(json_path, "mask_" + raw_image_name.split(".")[0] + ".json")
             image_path = os.path.join(raw_image_path, raw_image_name)
             image = cv2.imread(image_path)
             if image is None:
@@ -137,79 +153,17 @@ class CommonUtils:
             # load mask
             mask_npy_path = os.path.join(mask_path, "mask_" + raw_image_name.split(".")[0] + ".npy")
             mask = np.load(mask_npy_path)
-            # color map
-            unique_ids = np.unique(mask)
 
-            # get each mask from unique mask file
-            all_object_masks = []
-            for uid in unique_ids:
-                if uid == 0:  # skip background id
-                    continue
-                else:
-                    object_mask = (mask == uid)
-                    all_object_masks.append(object_mask[None])
-
-            if len(all_object_masks) == 0:
-                output_image_path = os.path.join(output_path, raw_image_name)
-                cv2.imwrite(output_image_path, image)
-                continue
-            # get n masks: (n, h, w)
-            all_object_masks = np.concatenate(all_object_masks, axis=0)
-
-            # load box information
-            file_path = os.path.join(json_path, "mask_" + raw_image_name.split(".")[0] + ".json")
-
-            all_object_boxes = []
-            all_object_ids = []
-            all_class_names = []
-            object_id_to_name = {}
             with open(file_path, "r") as file:
                 json_data = json.load(file)
-                for obj_id, obj_item in json_data["labels"].items():
-                    # box id
-                    instance_id = obj_item["instance_id"]
-                    if instance_id not in unique_ids:  # not a valid box
-                        continue
-                    # box coordinates
-                    x1, y1, x2, y2 = obj_item["x1"], obj_item["y1"], obj_item["x2"], obj_item["y2"]
-                    all_object_boxes.append([x1, y1, x2, y2])
-                    # box name
-                    class_name = obj_item["class_name"]
+                json_data_labels = json_data["labels"].items()
 
-                    # build id list and id2name mapping
-                    all_object_ids.append(instance_id)
-                    all_class_names.append(class_name)
-                    object_id_to_name[instance_id] = class_name
+                detections, labels = CommonUtils.get_detection_from_mask(mask, json_data_labels)
 
-            # Adjust object id and boxes to ascending order
-            paired_id_and_box = zip(all_object_ids, all_object_boxes)
-            sorted_pair = sorted(paired_id_and_box, key=lambda pair: pair[0])
+                masked_frame = draw_mask_image_with_detections(image.copy(), [detections])
+                output_image_path = os.path.join(output_path, raw_image_name)
+                cv2.imwrite(output_image_path, masked_frame)
 
-            # Because we get the mask data as ascending order, so we also need to ascend box and ids
-            all_object_ids = [pair[0] for pair in sorted_pair]
-            all_object_boxes = [pair[1] for pair in sorted_pair]
-
-            detections = sv.Detections(
-                xyxy=np.array(all_object_boxes),
-                mask=all_object_masks,
-                class_id=np.array(all_object_ids, dtype=np.int32),
-            )
-
-            # custom label to show both id and class name
-            labels = [
-                f"{instance_id}: {class_name}" for instance_id, class_name in zip(all_object_ids, all_class_names)
-            ]
-
-            box_annotator = sv.BoxAnnotator()
-            annotated_frame = box_annotator.annotate(scene=image.copy(), detections=detections)
-            label_annotator = sv.LabelAnnotator()
-            annotated_frame = label_annotator.annotate(annotated_frame, detections=detections, labels=labels)
-            mask_annotator = sv.MaskAnnotator()
-            annotated_frame = mask_annotator.annotate(scene=annotated_frame, detections=detections)
-
-            output_image_path = os.path.join(output_path, raw_image_name)
-            cv2.imwrite(output_image_path, annotated_frame)
-            print(f"Annotated image saved as {output_image_path}")
 
     @staticmethod
     def draw_masks_and_box(raw_image_path, mask_path, json_path, output_path):
@@ -296,7 +250,7 @@ def clean_masks_with_closing(
     return np.stack(cleaned, axis=0)
 
 
-def mask_image_with_detections(
+def draw_mask_image_with_detections(
     image: np.ndarray,
     detections_list: List[sv.Detections],
 ) -> np.ndarray:

@@ -11,7 +11,7 @@ from sam2.build_sam import build_sam2_video_predictor, build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 
-from utils.common_utils import mask_image_with_detections
+from utils.common_utils import draw_mask_image_with_detections
 from utils.track_utils import sample_points_from_masks
 from utils.video_utils import create_video_from_images, extract_frames_from_video
 
@@ -156,7 +156,7 @@ def track_object_in_video(
             class_id=np.array(object_ids, dtype=np.int32),
         )
         # Mask the image using the detected object masks
-        masked_frame = mask_image_with_detections(img.copy(), [detections])
+        masked_frame = draw_mask_image_with_detections(img.copy(), [detections])
         # Optionally, you can annotate with boxes/labels/masks (commented out)
         # annotated_frame = sv.BoxAnnotator().annotate(scene=img.copy(), detections=detections)
         # annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
