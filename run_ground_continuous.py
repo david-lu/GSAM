@@ -30,6 +30,8 @@ INPUT_FRAME_DIR = ".tmp/input_frames"
 OUTPUT_FRAME_DIR = ".tmp/output_frames"
 MASK_DATA_DIR = ".tmp/mask_data"
 JSON_DATA_DIR = ".tmp/json_data"
+REVERSED_MASK_DATA_DIR = ".tmp/reversed_mask_data"
+REVERSED_JSON_DATA_DIR = ".tmp/reversed_json_data"
 
 # === Load SAM2 Models ===
 sam2_checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
@@ -219,9 +221,9 @@ def track_object_in_video(
         if frame_idx != 0:
             video_predictor.reset_state(inference_state)
             image_base_name = frame_names[frame_idx].split(".")[0]
-            json_data_path = os.path.join(JSON_DATA_DIR, f"mask_{image_base_name}.json")
+            json_data_path = os.path.join(REVERSED_JSON_DATA_DIR, f"mask_{image_base_name}.json")
             json_data = MaskDictionaryModel().from_json(json_data_path)
-            mask_data_path = os.path.join(MASK_DATA_DIR, f"mask_{image_base_name}.npy")
+            mask_data_path = os.path.join(REVERSED_MASK_DATA_DIR, f"mask_{image_base_name}.npy")
             mask_array = np.load(mask_data_path)
             for object_id in range(start_object_id + 1, current_object_count + 1):
                 print("reverse tracking object", object_id)
@@ -232,9 +234,9 @@ def track_object_in_video(
         for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(
                 inference_state, reverse=True):
             image_base_name = frame_names[out_frame_idx].split(".")[0]
-            json_data_path = os.path.join(JSON_DATA_DIR, f"mask_{image_base_name}.json")
+            json_data_path = os.path.join(REVERSED_JSON_DATA_DIR, f"mask_{image_base_name}.json")
             json_data = MaskDictionaryModel().from_json(json_data_path)
-            mask_data_path = os.path.join(MASK_DATA_DIR, f"mask_{image_base_name}.npy")
+            mask_data_path = os.path.join(REVERSED_MASK_DATA_DIR, f"mask_{image_base_name}.npy")
             mask_array = np.load(mask_data_path)
             # merge the reverse tracking masks with the original masks
             for i, out_obj_id in enumerate(out_obj_ids):
@@ -268,7 +270,13 @@ def track_from_video_file(
     """
 
     # Ensure input/output frame folders are clean
-    for folder in [INPUT_FRAME_DIR, OUTPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR]:
+    for folder in [
+        INPUT_FRAME_DIR,
+        OUTPUT_FRAME_DIR,
+        MASK_DATA_DIR,
+        JSON_DATA_DIR,
+        REVERSED_JSON_DATA_DIR,
+        REVERSED_MASK_DATA_DIR]:
         if os.path.exists(folder):
             shutil.rmtree(folder)
         os.makedirs(folder)
