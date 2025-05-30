@@ -50,7 +50,7 @@ processor = AutoProcessor.from_pretrained(dino_model_id)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_model_id).to(device)
 
 # === Inference Function ===
-def track_object_in_video(text_prompt: str, step: int = 10, reverse: bool = False):
+def track_object_in_video(text_prompt: str, step: int = 24, reverse: bool = False):
     frame_names = [
         p for p in os.listdir(INPUT_FRAME_DIR)
         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG", ".png", ".PNG"]
@@ -291,7 +291,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animated character. animated clothing.",
+        "animated character. animated character holding object.",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
