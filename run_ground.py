@@ -156,7 +156,7 @@ def track_object_in_video(
             class_id=np.array(object_ids, dtype=np.int32),
         )
         # Mask the image using the detected object masks
-        masked_frame = mask_image_with_detections(img.copy(), detections)
+        masked_frame = mask_image_with_detections(img.copy(), [detections])
         # Optionally, you can annotate with boxes/labels/masks (commented out)
         # annotated_frame = sv.BoxAnnotator().annotate(scene=img.copy(), detections=detections)
         # annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
@@ -168,7 +168,6 @@ def track_object_in_video(
         saved_frame_paths.append(out_path)
 
     # Combine all annotated frames into a final output video
-    create_video_from_images(output_video_dir, os.path.join(output_video_dir, "tracked_output.mp4"))
     return saved_frame_paths
 
 
