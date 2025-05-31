@@ -180,7 +180,7 @@ if __name__ == '__main__':
 
     # Example using AdaptiveDetector, can be made configurable
     # Note: The `detectors` argument in `split_video_into_scenes` expects a list of SceneDetector instances.
-    custom_detectors = [AdaptiveDetector(adaptive_threshold=3.0, window_width=3)]
+    custom_detectors = [AdaptiveDetector(adaptive_threshold=2.0, window_width=3)]
 
     generated_clips = split_video_into_scenes(input_video, output_directory, detectors=custom_detectors)
 

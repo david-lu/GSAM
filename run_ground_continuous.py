@@ -34,13 +34,22 @@ JSON_DATA_DIR = ".tmp/json_data"
 # === Load SAM2 Models ===
 sam2_checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
 model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-video_predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
+video_predictor = build_sam2_video_predictor(
+    model_cfg,
+    sam2_checkpoint,
+    hydra_overrides_extra=[
+            "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
+            "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.03",
+            "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
+            "++model.binarize_mask_from_pts_for_mem_enc=true",
+            "++model.fill_hole_area=16",
+        ])
 sam2_image_model = build_sam2(model_cfg, sam2_checkpoint)
 image_predictor = SAM2ImagePredictor(
     sam2_image_model,
-    mask_threshold=0.5,
+    mask_threshold=0.4,
     max_hole_area=8,
-    max_sprinkle_area=128)
+    max_sprinkle_area=256)
 
 # === Load Grounding DINO ===
 dino_model_id = "IDEA-Research/grounding-dino-base"
@@ -61,7 +70,6 @@ def track_object_in_video(text_prompt: str, step: int = 24, reverse: bool = Fals
     inference_state = video_predictor.init_state(video_path=INPUT_FRAME_DIR)
 
     sam2_masks = MaskDictionaryModel()
-    PROMPT_TYPE_FOR_VIDEO = "mask"  # box, mask or point
     objects_count = 0
     frame_object_count = {}
     """
@@ -85,8 +93,8 @@ def track_object_in_video(text_prompt: str, step: int = 24, reverse: bool = Fals
         results = processor.post_process_grounded_object_detection(
             outputs,
             inputs.input_ids,
-            box_threshold=0.25,
-            text_threshold=0.25,
+            box_threshold=0.3,
+            text_threshold=0.4,
             target_sizes=[image.size[::-1]]
         )
 
@@ -277,7 +285,8 @@ def track_from_video_file(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Track objects in a video using Grounded-SAM2")
+    parser = argparse.ArgumentParser(
+        description="Track objects in a video using Grounded-SAM2")
 
     parser.add_argument(
         "--input", type=str, required=True,
@@ -291,7 +300,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animated character. animated character holding object.",
+        "animation character. animation character holding object. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
