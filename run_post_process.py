@@ -116,19 +116,23 @@ def crop_video_with_bounding_box(input_video_path, output_video_path, bounding_b
 
 
 def resize_video_contain_with_padding(input_video_path, output_video_path, target_width=512, target_height=512,
-                                      padding_color=(255, 255, 255)):
+                                      padding_color=(255, 255, 255), alignment="bottom"):
     """
-    Resizes a video to target dimensions using a "contain" strategy.
+    Resizes a video to target dimensions using a "contain" strategy with alignment.
     The original content is scaled to fit entirely within the target dimensions,
-    maintaining its aspect ratio. White space (or specified color) is added as
-    padding if the aspect ratios differ (letterboxing/pillarboxing).
+    maintaining its aspect ratio. Specified color padding is added.
 
     Args:
-        input_video_path (str): Path to the source video (e.g., already cropped).
+        input_video_path (str): Path to the source video.
         output_video_path (str): Path to save the final resized video file.
-        target_width (int): The desired width of the output video frames.
-        target_height (int): The desired height of the output video frames.
+        target_width (int): Desired width of the output video frames.
+        target_height (int): Desired height of the output video frames.
         padding_color (tuple): BGR color for the padding (default is white).
+        alignment (str): Alignment of the video within the padded frame.
+                         Options: "center", "top", "bottom", "left", "right",
+                                  "top-left", "top-right", "bottom-left", "bottom-right".
+                         If a single direction (e.g., "bottom") is given,
+                         the other axis defaults to "center". Default is "bottom".
 
     Returns:
         bool: True if processing was successful, False otherwise.
@@ -158,7 +162,7 @@ def resize_video_contain_with_padding(input_video_path, output_video_path, targe
         return False
 
     print(
-        f"Resizing (contain with padding) video. Input: '{input_video_path}', Output: '{output_video_path}', Target: {target_width}x{target_height}")
+        f"Resizing (contain with padding, align: {alignment}) video. Input: '{input_video_path}', Output: '{output_video_path}', Target: {target_width}x{target_height}")
 
     frames_processed = 0
     while True:
@@ -166,27 +170,44 @@ def resize_video_contain_with_padding(input_video_path, output_video_path, targe
         if not ret:
             break
 
-        # Calculate scaling factor to fit frame within target_width/target_height
         scale_w = target_width / frame_w_orig
         scale_h = target_height / frame_h_orig
         scale_factor = min(scale_w, scale_h)
 
-        # Calculate new dimensions for the scaled frame
         new_w = int(frame_w_orig * scale_factor)
         new_h = int(frame_h_orig * scale_factor)
 
-        # Resize the frame
         resized_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-        # Create the background frame (e.g., white)
-        # Color is BGR, so (255, 255, 255) is white
         background = np.full((target_height, target_width, 3), padding_color, dtype=np.uint8)
 
-        # Calculate top-left position to paste the resized frame
-        x_offset = (target_width - new_w) // 2
-        y_offset = (target_height - new_h) // 2
+        # Determine alignment offsets
+        align_parts = alignment.lower().split('-')
 
-        # Paste the resized frame onto the background
+        # Default vertical alignment: center (if not specified or part of a combined alignment)
+        if "top" in align_parts:
+            y_offset = 0
+        elif "bottom" in align_parts:
+            y_offset = target_height - new_h
+        else:  # Default to center if no vertical alignment or just "center" is specified
+            y_offset = (target_height - new_h) // 2
+
+        # Default horizontal alignment: center (if not specified or part of a combined alignment)
+        if "left" in align_parts:
+            x_offset = 0
+        elif "right" in align_parts:
+            x_offset = target_width - new_w
+        else:  # Default to center if no horizontal alignment or just "center" is specified
+            x_offset = (target_width - new_w) // 2
+
+        # Handle single "center" alignment
+        if alignment.lower() == "center":
+            x_offset = (target_width - new_w) // 2
+            y_offset = (target_height - new_h) // 2
+
+        # Ensure offsets are not negative (can happen if new_w/h > target_w/h due to rounding, though unlikely with 'contain')
+        x_offset = max(0, x_offset)
+        y_offset = max(0, y_offset)
+
         background[y_offset: y_offset + new_h, x_offset: x_offset + new_w] = resized_frame
 
         out.write(background)
@@ -200,19 +221,24 @@ def resize_video_contain_with_padding(input_video_path, output_video_path, targe
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Extracts an animation cel, crops the video to it, and then resizes the cropped video with padding.")
+        description="Extracts an animation cel, crops the video to it, and then resizes the cropped video with padding and alignment.")
     parser.add_argument("--input", type=str, required=True, help="Path to the input video file.")
     parser.add_argument("--output", type=str, required=True, help="Path for the final resized output video file.")
+    parser.add_argument("--align", type=str, default="bottom",
+                        choices=["center", "top", "bottom", "left", "right",
+                                 "top-left", "top-right", "bottom-left", "bottom-right"],
+                        help="Alignment of the video within the padded frame (default: bottom).")
     # You can add more optional arguments here for threshold, min_area, target_width, target_height, padding_color
 
     args = parser.parse_args()
 
     input_file_path = args.input
     final_output_file_path = args.output
+    alignment_choice = args.align
 
     temp_dir = ".tmp"
     temp_filename = "cropped_video.mp4"
-    temp_cropped_video_file_path = None  # Initialize to None
+    temp_cropped_video_file_path = None
 
     try:
         os.makedirs(temp_dir, exist_ok=True)
@@ -231,14 +257,18 @@ if __name__ == '__main__':
             if success_crop:
                 print(f"Video cropped to bounding box and saved to temporary file: '{temp_cropped_video_file_path}'")
 
-                print(f"\n--- Step 3: Resizing (contain with white padding) the cropped video ---")
-                # Default padding is white. Default target size is 512x512.
-                success_resize = resize_video_contain_with_padding(temp_cropped_video_file_path, final_output_file_path)
+                print(
+                    f"\n--- Step 3: Resizing (contain with white padding, align: {alignment_choice}) the cropped video ---")
+                success_resize = resize_video_contain_with_padding(
+                    temp_cropped_video_file_path,
+                    final_output_file_path,
+                    alignment=alignment_choice
+                )
 
                 if success_resize:
-                    print(f"Video resized (contain with padding) successfully and saved to '{final_output_file_path}'")
+                    print(f"Video resized successfully and saved to '{final_output_file_path}'")
                 else:
-                    print(f"Failed to resize (contain with padding) video from '{temp_cropped_video_file_path}'.")
+                    print(f"Failed to resize video from '{temp_cropped_video_file_path}'.")
             else:
                 print(f"Failed to crop video to bounding box. Skipping resize step.")
         else:
@@ -247,6 +277,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"An error occurred: {e}")
         traceback.print_exc()
-    # The finally block that deleted the temporary file has been removed.
     # The temporary file at temp_cropped_video_file_path will persist after script execution.
 
