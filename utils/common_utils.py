@@ -30,8 +30,6 @@ class CommonUtils:
     def get_detection_from_mask(
             mask: np.ndarray,
             json_data_labels: dict) -> Tuple[sv.Detections | None, List[Tuple[Any, Any]] | None]:
-
-        print('json_data_labels', json_data_labels)
         # color map
         unique_ids = np.unique(mask)
 
@@ -265,7 +263,7 @@ def draw_mask_image_with_detections(
     # Collect all masks from all detections
     all_masks = []
     for detections in detections_list:
-        if detections.mask is not None and len(detections.mask) > 0:
+        if detections is not None and detections.mask is not None and len(detections.mask) > 0:
             cleaned_masks = clean_masks_with_closing(detections.mask)
             all_masks.append(cleaned_masks)
     

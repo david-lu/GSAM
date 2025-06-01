@@ -38,17 +38,16 @@ video_predictor = build_sam2_video_predictor(
     model_cfg,
     sam2_checkpoint,
     hydra_overrides_extra=[
-            "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
-            "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
-            "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
-            "++model.binarize_mask_from_pts_for_mem_enc=true",
-            "++model.fill_hole_area=16",
-        ])
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
+        "++model.binarize_mask_from_pts_for_mem_enc=true",
+        "++model.fill_hole_area=16",
+    ])
 sam2_image_model = build_sam2(model_cfg, sam2_checkpoint)
 image_predictor = SAM2ImagePredictor(
     sam2_image_model,
-    mask_threshold=0,
-    max_hole_area=8,
+    mask_threshold=0.5,
     max_sprinkle_area=128)
 
 # === Load Grounding DINO ===
@@ -59,142 +58,179 @@ processor = AutoProcessor.from_pretrained(dino_model_id)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_model_id).to(device)
 
 # === Inference Function ===
-def track_object_in_video(text_prompt: str, step: int = 24, reverse: bool = False):
+def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = False):
+    """
+    Tracks objects in a video using Grounded-SAM2.
+
+    Args:
+    - text_prompt (str): Text prompt for the object to track.
+    - step (int): Step size for processing frames. Defaults to 24.
+    - reverse (bool): Whether to perform reverse tracking. Defaults to False.
+    """
+    # Get the list of frame names in the input directory
     frame_names = [
         p for p in os.listdir(INPUT_FRAME_DIR)
         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG", ".png", ".PNG"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
 
-    # init video predictor state
+    # Initialize the video predictor state
     inference_state = video_predictor.init_state(video_path=INPUT_FRAME_DIR)
 
+    # Initialize the mask dictionary model
     sam2_masks = MaskDictionaryModel()
     objects_count = 0
     frame_object_count = {}
+
     """
     Step 2: Prompt Grounding DINO and SAM image predictor to get the box and mask for all frames
     """
     print("Total frames:", len(frame_names))
     for start_frame_idx in range(0, len(frame_names), step):
-        # prompt grounding dino to get the box coordinates on specific frame
+        # Prompt Grounding DINO to get the box coordinates on a specific frame
         print("start_frame_idx", start_frame_idx)
-        # continue
         img_path = os.path.join(INPUT_FRAME_DIR, frame_names[start_frame_idx])
         image = Image.open(img_path).convert("RGB")
         image_base_name = frame_names[start_frame_idx].split(".")[0]
         mask_dict = MaskDictionaryModel(promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
 
-        # run Grounding DINO on the image
+        # Run Grounding DINO on the image
         inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = grounding_model(**inputs)
 
+        # Results from a grounded object detection processor (likely GROUNDING DINO)
+        # This processes the model outputs to obtain bounding boxes and labels for detected objects
         results = processor.post_process_grounded_object_detection(
-            outputs,
-            inputs.input_ids,
-            box_threshold=0.3,
-            text_threshold=0.4,
-            target_sizes=[image.size[::-1]]
+            outputs,                          # Raw model outputs
+            inputs.input_ids,                 # Input token IDs
+            box_threshold=0.3,                # Confidence threshold for box detection
+            text_threshold=0.5,               # Confidence threshold for text detection
+            target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
         )
 
-        # prompt SAM image predictor to get the mask for the object
+        # Set the current image for SAM (Segment Anything Model) predictor
         image_predictor.set_image(np.array(image.convert("RGB")))
 
-        # process the detection results
-        input_boxes = results[0]["boxes"]  # .cpu().numpy()
+        # Extract the detected bounding boxes from results
+        input_boxes = results[0]["boxes"]     # Bounding boxes for detected objects
         # print("results[0]",results[0])
-        OBJECTS = results[0]["labels"]
-        if input_boxes.shape[0] != 0:
+        OBJECTS = results[0]["labels"]        # Labels for the detected objects
+        if input_boxes.shape[0] != 0:  # If objects were detected
 
-            # prompt SAM 2 image predictor to get the mask for the object
+            # Use SAM 2 to generate masks for each detected object's bounding box
             masks, scores, logits = image_predictor.predict(
-                point_coords=None,
-                point_labels=None,
-                box=input_boxes,
-                multimask_output=False,
+                point_coords=None,            # No point coordinates used
+                point_labels=None,            # No point labels used
+                box=input_boxes,              # Using bounding boxes as prompts
+                multimask_output=False,       # Only generate one mask per box
             )
-            # convert the mask shape to (n, H, W)
+            # Normalize mask shape to (n, H, W) format
             if masks.ndim == 2:
-                masks = masks[None]
+                masks = masks[None]           # Add batch dimension if missing
                 scores = scores[None]
                 logits = logits[None]
             elif masks.ndim == 4:
-                masks = masks.squeeze(1)
+                masks = masks.squeeze(1)      # Remove unnecessary dimension
             """
             Step 3: Register each object's positive points to video predictor
             """
 
-            # If you are using point prompts, we uniformly sample positive points based on the mask
+            # Step 3: Register detected objects' masks to the video predictor
             if mask_dict.promote_type == "mask":
-                mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),
-                                                   box_list=torch.tensor(input_boxes), label_list=OBJECTS)
+                # Add the current frame's masks, boxes, and labels to mask_dict
+                mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
+                                                   box_list=torch.tensor(input_boxes),        # Convert boxes to tensor
+                                                   label_list=OBJECTS)                        # Labels for the objects
             else:
                 raise NotImplementedError("SAM 2 video predictor only support mask prompts")
         else:
+            # No objects detected in this frame
             print("No object detected in the frame, skip merge the frame merge {}".format(frame_names[start_frame_idx]))
-            mask_dict = sam2_masks
+            mask_dict = sam2_masks  # Use previous masks
 
         """
         Step 4: Propagate the video predictor to get the segmentation results for each frame
         """
-        objects_count = mask_dict.update_masks(tracking_annotation_dict=sam2_masks, iou_threshold=0.8,
-                                               objects_count=objects_count)
+        # Updates mask_dict by merging with tracking annotations based on IoU threshold
+        # Returns and updates the count of unique objects tracked so far
+        objects_count = mask_dict.update_masks(
+            tracking_annotation_dict=sam2_masks,
+            iou_threshold=0.7,
+            objects_count=objects_count)
+        # Store the object count for this frame
         frame_object_count[start_frame_idx] = objects_count
         print("objects_count", objects_count)
 
         if len(mask_dict.labels) == 0:
-            mask_dict.save_empty_mask_and_json(MASK_DATA_DIR, JSON_DATA_DIR,
+            # If no objects to track, save empty masks and JSON data
+            mask_dict.save_empty_mask_and_json(MASK_DATA_DIR,                # Directory to save mask files
+                                               JSON_DATA_DIR,                # Directory to save JSON annotation files
                                                image_name_list=frame_names[start_frame_idx:start_frame_idx + step])
             print("No object detected in the frame, skip the frame {}".format(start_frame_idx))
             continue
         else:
-            print('mask_dict.labels', mask_dict.labels)
-            # video_predictor.reset_state(inference_state)
+            # print('mask_dict', mask_dict)
+            video_predictor.reset_state(inference_state)
 
+            # For each detected object, add its mask to the video predictor
             for object_id, object_info in mask_dict.labels.items():
                 frame_idx, out_obj_ids, out_mask_logits = video_predictor.add_new_mask(
-                    inference_state,
-                    start_frame_idx,
-                    object_id,
-                    object_info.mask,
+                    inference_state,          # Current inference state
+                    start_frame_idx,          # Starting frame index
+                    object_id,                # Unique ID for this object
+                    object_info.mask,         # Mask for this object
                 )
 
+            # Dictionary to store segmentation results for each frame
             video_segments = {}  # output the following {step} frames tracking masks
+            # Propagate object masks to subsequent frames
             for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(
                     inference_state,
-                    max_frame_num_to_track=step,
-                    start_frame_idx=start_frame_idx):
-                frame_masks = MaskDictionaryModel()
+                    max_frame_num_to_track=step,      # Maximum frames to track forward
+                    start_frame_idx=start_frame_idx): # Starting frame index
+                frame_masks = MaskDictionaryModel()   # Container for this frame's masks
 
+                # Process each object's mask for this frame
                 for i, out_obj_id in enumerate(out_obj_ids):
+                    # Convert logits to binary mask (threshold at 0.0)
                     out_mask = (out_mask_logits[i] > 0.0)  # .cpu().numpy()
-                    object_info = ObjectInfo(instance_id=out_obj_id, mask=out_mask[0],
-                                             class_name=mask_dict.get_target_class_name(out_obj_id),
-                                             logit=mask_dict.get_target_logit(out_obj_id))
-                    object_info.update_box()
+                    # Create object info with mask, class name and logit
+                    object_info = ObjectInfo(instance_id=out_obj_id, 
+                                           mask=out_mask[0],
+                                           class_name=mask_dict.get_target_class_name(out_obj_id),
+                                           logit=mask_dict.get_target_logit(out_obj_id))
+                    object_info.update_box()  # Update bounding box based on mask
+                    # Add this object to the current frame's masks
                     frame_masks.labels[out_obj_id] = object_info
+                    # Create mask filename based on frame name
                     image_base_name = frame_names[out_frame_idx].split(".")[0]
                     frame_masks.mask_name = f"mask_{image_base_name}.npy"
                     frame_masks.mask_height = out_mask.shape[-2]
                     frame_masks.mask_width = out_mask.shape[-1]
 
+                # Store this frame's masks in the video segments dictionary
                 video_segments[out_frame_idx] = frame_masks
+                # Update tracking state for next iteration
                 sam2_masks = copy.deepcopy(frame_masks)
 
             print("video_segments:", len(video_segments))
         """
         Step 5: save the tracking masks and json files
         """
+        # Save the tracking masks and corresponding JSON files
         for frame_idx, frame_masks_info in video_segments.items():
             mask = frame_masks_info.labels
+            # Create a single mask image where pixel values correspond to object IDs
             mask_img = torch.zeros(frame_masks_info.mask_height, frame_masks_info.mask_width)
             for obj_id, obj_info in mask.items():
                 mask_img[obj_info.mask == True] = obj_id
 
+            # Convert to numpy array and save to disk
             mask_img = mask_img.numpy().astype(np.uint16)
             np.save(os.path.join(MASK_DATA_DIR, frame_masks_info.mask_name), mask_img)
 
+            # Save corresponding JSON metadata
             json_data_path = os.path.join(JSON_DATA_DIR, frame_masks_info.mask_name.replace(".npy", ".json"))
             frame_masks_info.to_json(json_data_path)
 
@@ -302,7 +338,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animation character. cartoon animation cel. ",
+        "animated character. animated animal. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 

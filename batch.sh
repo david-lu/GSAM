@@ -1,13 +1,13 @@
 #!/bin/bash
 
 #INPUT_DIR="/home/chicken/Videos/split_adaptive/sword_in_the_stone/"
-#INPUT_DIR="/home/chicken/Videos/input/"
-#OUTPUT_DIR="/home/chicken/Videos/output"
-#OUTPUT_CROPPED_DIR="/home/chicken/Videos/output_cropped"
+INPUT_DIR="/home/chicken/Videos/input/"
+OUTPUT_DIR="/home/chicken/Videos/output"
+OUTPUT_CROPPED_DIR="/home/chicken/Videos/output_cropped"
 
-INPUT_DIR="/home/chicken/Videos/split_adaptive/alice"
-OUTPUT_DIR="/home/chicken/Videos/output/alice"
-OUTPUT_CROPPED_DIR="/home/chicken/Videos/output/alice_cropped"
+#INPUT_DIR="/home/chicken/Videos/split_adaptive/alice"
+#OUTPUT_DIR="/home/chicken/Videos/output/alice"
+#OUTPUT_CROPPED_DIR="/home/chicken/Videos/output/alice_cropped"
 
 SCRIPT_DIR="/home/chicken/Documents/GitHub/GSAM"
 MASK_SCRIPT="$SCRIPT_DIR/run_ground_continuous.py"

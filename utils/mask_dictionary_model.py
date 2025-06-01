@@ -35,7 +35,12 @@ class MaskDictionaryModel:
         self.mask_width = mask_img.shape[1]
         self.labels = anno_2d
 
-    def update_masks(self, tracking_annotation_dict, iou_threshold=0.8, objects_count=0):
+    def update_masks(
+            self,
+            tracking_annotation_dict,
+            iou_threshold=0.8,
+            objects_count=0,
+            use_union: bool = True):
         updated_masks = {}
 
         for seg_obj_id, seg_mask in self.labels.items():  # tracking_masks
@@ -46,10 +51,13 @@ class MaskDictionaryModel:
             
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
                 iou = self.calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
-                # print("iou", iou)
+                # print("iou", iou, objects_count)
                 if iou > iou_threshold:
                     flag = object_info.instance_id
-                    new_mask_copy.mask = seg_mask.mask
+                    if use_union:
+                        new_mask_copy.mask = seg_mask.mask.bool() | object_info.mask.bool()
+                    else:
+                        new_mask_copy.mask = object_info.mask
                     new_mask_copy.instance_id = object_info.instance_id
                     new_mask_copy.class_name = seg_mask.class_name
                     break
