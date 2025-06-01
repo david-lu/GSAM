@@ -35,12 +35,53 @@ class MaskDictionaryModel:
         self.mask_width = mask_img.shape[1]
         self.labels = anno_2d
 
+    def new_update_masks(
+            self,
+            tracking_annotation_dict,
+            iou_threshold=0.8,
+            objects_count=0):
+        updated_masks = {}
+
+        tracking_masks = list(tracking_annotation_dict.labels.keys())
+        print(f'Merging masks PREV: {list(self.labels.keys())} NEW: {tracking_masks}')
+
+        for seg_obj_id, seg_mask in self.labels.items():  # tracking_masks
+            new_mask_copy = ObjectInfo()
+            if seg_mask.mask.sum() == 0:
+                continue
+
+            new_mask_copy.mask = seg_mask.mask.bool()
+            for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
+                iou = self.calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
+                # print("iou", iou, objects_count)
+                if iou > iou_threshold:
+                    new_mask_copy.mask = new_mask_copy.mask | object_info.mask.bool()
+                    print(f'combining masks for object {seg_obj_id} and {object_id} with iou {iou}')
+                    object_id in tracking_masks and tracking_masks.remove(object_id)
+
+            updated_masks[seg_obj_id] = new_mask_copy
+
+        print('Remaining tracking objects', tracking_masks)
+        for tracking_id in tracking_masks:
+            objects_count += 1
+            new_tracking_id = objects_count
+            new_mask_copy = ObjectInfo()
+            new_mask_copy.instance_id = new_tracking_id
+            new_mask_copy.mask = tracking_annotation_dict.labels[tracking_id].mask.bool()
+            new_mask_copy.class_name = tracking_annotation_dict.labels[tracking_id].class_name
+            print(f'adding new mask object with id {new_tracking_id}')
+            updated_masks[new_tracking_id] = new_mask_copy
+
+        print('updated_masks', list(updated_masks.keys()))
+
+        self.labels = updated_masks
+        return objects_count
+
     def update_masks(
             self,
             tracking_annotation_dict,
             iou_threshold=0.8,
-            objects_count=0,
-            use_union: bool = True):
+            objects_count=0):
         updated_masks = {}
 
         for seg_obj_id, seg_mask in self.labels.items():  # tracking_masks
@@ -54,10 +95,7 @@ class MaskDictionaryModel:
                 # print("iou", iou, objects_count)
                 if iou > iou_threshold:
                     flag = object_info.instance_id
-                    if use_union:
-                        new_mask_copy.mask = seg_mask.mask.bool() | object_info.mask.bool()
-                    else:
-                        new_mask_copy.mask = object_info.mask
+                    new_mask_copy.mask = object_info.mask
                     new_mask_copy.instance_id = object_info.instance_id
                     new_mask_copy.class_name = seg_mask.class_name
                     break

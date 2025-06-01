@@ -36,18 +36,11 @@ sam2_checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
 model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
 video_predictor = build_sam2_video_predictor(
     model_cfg,
-    sam2_checkpoint,
-    hydra_overrides_extra=[
-        "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
-        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
-        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
-        "++model.binarize_mask_from_pts_for_mem_enc=true",
-        "++model.fill_hole_area=16",
-    ])
+    sam2_checkpoint)
 sam2_image_model = build_sam2(model_cfg, sam2_checkpoint)
 image_predictor = SAM2ImagePredictor(
     sam2_image_model,
-    mask_threshold=0.5,
+    mask_threshold=0.6,
     max_sprinkle_area=128)
 
 # === Load Grounding DINO ===
@@ -88,11 +81,12 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     print("Total frames:", len(frame_names))
     for start_frame_idx in range(0, len(frame_names), step):
         # Prompt Grounding DINO to get the box coordinates on a specific frame
-        print("start_frame_idx", start_frame_idx)
+        print(f"========================= FRAME {start_frame_idx} ===================================")
         img_path = os.path.join(INPUT_FRAME_DIR, frame_names[start_frame_idx])
         image = Image.open(img_path).convert("RGB")
         image_base_name = frame_names[start_frame_idx].split(".")[0]
-        mask_dict = MaskDictionaryModel(promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
+        mask_dict = MaskDictionaryModel(
+            promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
 
         # Run Grounding DINO on the image
         inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
@@ -105,7 +99,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             outputs,                          # Raw model outputs
             inputs.input_ids,                 # Input token IDs
             box_threshold=0.3,                # Confidence threshold for box detection
-            text_threshold=0.5,               # Confidence threshold for text detection
+            text_threshold=0.3,               # Confidence threshold for text detection
             target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
         )
 
@@ -117,6 +111,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         # print("results[0]",results[0])
         OBJECTS = results[0]["labels"]        # Labels for the detected objects
         if input_boxes.shape[0] != 0:  # If objects were detected
+            print(f"Objects {OBJECTS} detected in the frame {start_frame_idx}. detecting masks...")
 
             # Use SAM 2 to generate masks for each detected object's bounding box
             masks, scores, logits = image_predictor.predict(
@@ -146,7 +141,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                 raise NotImplementedError("SAM 2 video predictor only support mask prompts")
         else:
             # No objects detected in this frame
-            print("No object detected in the frame, skip merge the frame merge {}".format(frame_names[start_frame_idx]))
+            print(f"No object detected in the frame {start_frame_idx}, skip frame merge")
             mask_dict = sam2_masks  # Use previous masks
 
         """
@@ -154,10 +149,12 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         """
         # Updates mask_dict by merging with tracking annotations based on IoU threshold
         # Returns and updates the count of unique objects tracked so far
-        objects_count = mask_dict.update_masks(
-            tracking_annotation_dict=sam2_masks,
-            iou_threshold=0.7,
+        new_mask_dict = copy.deepcopy(sam2_masks)
+        objects_count = new_mask_dict.new_update_masks(
+            tracking_annotation_dict=mask_dict,
+            iou_threshold=0.8,
             objects_count=objects_count)
+        mask_dict = new_mask_dict
         # Store the object count for this frame
         frame_object_count[start_frame_idx] = objects_count
         print("objects_count", objects_count)
@@ -265,6 +262,8 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         if not mask_added:
             print("No object detected in the frame, skip the frame {}".format(frame_idx))
             continue
+        else:
+            print("object detected in the frame".format(frame_idx))
 
         for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(
                 inference_state,
@@ -312,7 +311,7 @@ def track_from_video_file(
 
     # Step 2: Run tracking
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-        track_object_in_video(text_prompt=text_prompt)
+        track_object_in_video(text_prompt=text_prompt, reverse=True)
 
     # Step 3: Convert annotated frames to final video
     create_video_from_images(OUTPUT_FRAME_DIR, output_video_path)
@@ -338,7 +337,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animated character. animated animal. ",
+        "animated character holding prop. animated character. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
