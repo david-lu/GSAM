@@ -39,7 +39,7 @@ video_predictor = build_sam2_video_predictor(
     sam2_checkpoint,
     hydra_overrides_extra=[
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
-            "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.03",
+            "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
             "++model.binarize_mask_from_pts_for_mem_enc=true",
             "++model.fill_hole_area=16",
@@ -47,9 +47,9 @@ video_predictor = build_sam2_video_predictor(
 sam2_image_model = build_sam2(model_cfg, sam2_checkpoint)
 image_predictor = SAM2ImagePredictor(
     sam2_image_model,
-    mask_threshold=0.4,
+    mask_threshold=0,
     max_hole_area=8,
-    max_sprinkle_area=256)
+    max_sprinkle_area=128)
 
 # === Load Grounding DINO ===
 dino_model_id = "IDEA-Research/grounding-dino-base"
@@ -149,7 +149,8 @@ def track_object_in_video(text_prompt: str, step: int = 24, reverse: bool = Fals
             print("No object detected in the frame, skip the frame {}".format(start_frame_idx))
             continue
         else:
-            video_predictor.reset_state(inference_state)
+            print('mask_dict.labels', mask_dict.labels)
+            # video_predictor.reset_state(inference_state)
 
             for object_id, object_info in mask_dict.labels.items():
                 frame_idx, out_obj_ids, out_mask_logits = video_predictor.add_new_mask(
@@ -160,9 +161,10 @@ def track_object_in_video(text_prompt: str, step: int = 24, reverse: bool = Fals
                 )
 
             video_segments = {}  # output the following {step} frames tracking masks
-            for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(inference_state,
-                                                                                                  max_frame_num_to_track=step,
-                                                                                                  start_frame_idx=start_frame_idx):
+            for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(
+                    inference_state,
+                    max_frame_num_to_track=step,
+                    start_frame_idx=start_frame_idx):
                 frame_masks = MaskDictionaryModel()
 
                 for i, out_obj_id in enumerate(out_obj_ids):
@@ -300,7 +302,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animation character. animation character holding object. ",
+        "animation character. cartoon animation cel. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
