@@ -99,7 +99,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             outputs,                          # Raw model outputs
             inputs.input_ids,                 # Input token IDs
             box_threshold=0.3,                # Confidence threshold for box detection
-            text_threshold=0.3,               # Confidence threshold for text detection
+            text_threshold=0.4,               # Confidence threshold for text detection
             target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
         )
 
@@ -239,11 +239,11 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             INPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR, OUTPUT_FRAME_DIR)
         return
 
-    print("try reverse tracking")
+    print("============================== REVERSE TRACKING =================================")
     start_object_id = 0
     object_info_dict = {}
     for frame_idx, current_object_count in frame_object_count.items():
-        print("reverse tracking frame", frame_idx, frame_names[frame_idx])
+        print(f"Reverse tracking frame {frame_idx}. Frame Object count: {frame_object_count}")
         mask_added = False
         if frame_idx != 0:
             video_predictor.reset_state(inference_state)
@@ -252,15 +252,17 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             json_data = MaskDictionaryModel().from_json(json_data_path)
             mask_data_path = os.path.join(MASK_DATA_DIR, f"mask_{image_base_name}.npy")
             mask_array = np.load(mask_data_path)
+            print(f"json: {json_data}")
+            print(f"mask_array: {mask_array}")
             for object_id in range(start_object_id + 1, current_object_count + 1):
-                print("reverse tracking object", object_id)
+                print(f"Reverse tracking object {object_id}")
                 object_info_dict[object_id] = json_data.labels[object_id]
                 video_predictor.add_new_mask(inference_state, frame_idx, object_id, mask_array == object_id)
                 mask_added = True
         start_object_id = current_object_count
 
         if not mask_added:
-            print("No object detected in the frame, skip the frame {}".format(frame_idx))
+            print(f"No object detected in the frame, Skipping frame {frame_idx}")
             continue
         else:
             print("object detected in the frame".format(frame_idx))
@@ -337,7 +339,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animated character holding prop. animated character. ",
+        "animated cartoon character. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
