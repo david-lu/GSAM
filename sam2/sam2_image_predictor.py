@@ -40,7 +40,10 @@ class SAM2ImagePredictor:
             the maximum area of max_sprinkle_area in low_res_masks.
         """
         super().__init__()
-        self.model = sam_model
+        if isinstance(sam_model, torch.nn.parallel.DistributedDataParallel):
+            self.model = sam_model.module
+        else:
+            self.model = sam_model
         self._transforms = SAM2Transforms(
             resolution=self.model.image_size,
             mask_threshold=mask_threshold,
@@ -241,6 +244,7 @@ class SAM2ImagePredictor:
         box: Optional[np.ndarray] = None,
         mask_input: Optional[np.ndarray] = None,
         multimask_output: bool = True,
+        hq_token_only: bool = False,
         return_logits: bool = False,
         normalize_coords=True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -294,6 +298,7 @@ class SAM2ImagePredictor:
             unnorm_box,
             mask_input,
             multimask_output,
+            hq_token_only,
             return_logits=return_logits,
         )
 
@@ -341,6 +346,7 @@ class SAM2ImagePredictor:
         boxes: Optional[torch.Tensor] = None,
         mask_input: Optional[torch.Tensor] = None,
         multimask_output: bool = True,
+        hq_token_only: bool = False,
         return_logits: bool = False,
         img_idx: int = -1,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -423,6 +429,7 @@ class SAM2ImagePredictor:
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
+            hq_token_only= hq_token_only,
             repeat_image=batched_mode,
             high_res_features=high_res_features,
         )

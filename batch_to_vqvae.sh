@@ -1,6 +1,6 @@
 #!/bin/bash
 
-INPUT_DIR=~/Videos/output/cinderella
+INPUT_DIR=~/Videos/output/robin_hood_continuous
 TEMP_DIR=~/Videos/output_cropped
 OUTPUT_DIR=~/Videos/vqvae
 
@@ -24,9 +24,17 @@ for video_file in "$INPUT_DIR"/*.mp4 "$INPUT_DIR"/*.avi "$INPUT_DIR"/*.mov "$INP
     # Step 1: Run post-processing on the video
     echo "  Step 1: Running post-processing..."
     post_processed_file="$TEMP_DIR/${filename_noext}_post_processed.mp4"
+    
+    # Randomly select an alignment option
+    aligns=("center" "top" "bottom")
+    random_index=$(($RANDOM % ${#aligns[@]}))
+    align_value=${aligns[$random_index]}
+    echo "  Using alignment: $align_value"
+    
     python run_post_process.py \
         --input "$video_file" \
-        --output "$post_processed_file"
+        --output "$post_processed_file" \
+        --align "$align_value"
 
     # Check if post-processing was successful
     if [ ! -f "$post_processed_file" ]; then

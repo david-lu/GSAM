@@ -339,7 +339,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animated cartoon character. ",
+        "animated cartoon character holding a prop. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
