@@ -35,34 +35,37 @@ class MaskDictionaryModel:
         self.mask_width = mask_img.shape[1]
         self.labels = anno_2d
 
+
+    # TODO: Convert bool operation to float logits
     def new_update_masks(
             self,
             tracking_annotation_dict,
             iou_threshold=0.8,
-            objects_count=0):
+            objects_count=0) -> int:
         updated_masks = {}
 
-        tracking_masks = list(tracking_annotation_dict.labels.keys())
-        print(f'Merging masks PREV: {list(self.labels.keys())} NEW: {tracking_masks}')
+        tracking_mask_ids = list(tracking_annotation_dict.labels.keys())
+        print(f'Merging masks PREV: {list(self.labels.keys())} NEW: {tracking_mask_ids}')
 
         for seg_obj_id, seg_mask in self.labels.items():  # tracking_masks
-            new_mask_copy = ObjectInfo()
             if seg_mask.mask.sum() == 0:
                 continue
 
-            new_mask_copy.mask = seg_mask.mask.bool()
+            new_mask_copy = ObjectInfo(instance_id=seg_obj_id,
+                                       mask=seg_mask.mask.bool(),
+                                       class_name=seg_mask.class_name)
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
                 iou = self.calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
                 # print("iou", iou, objects_count)
                 if iou > iou_threshold:
                     new_mask_copy.mask = new_mask_copy.mask | object_info.mask.bool()
                     print(f'combining masks for object {seg_obj_id} and {object_id} with iou {iou}')
-                    object_id in tracking_masks and tracking_masks.remove(object_id)
+                    object_id in tracking_mask_ids and tracking_mask_ids.remove(object_id)
 
             updated_masks[seg_obj_id] = new_mask_copy
 
-        print('Remaining tracking objects', tracking_masks)
-        for tracking_id in tracking_masks:
+        print('Remaining tracking objects', tracking_mask_ids)
+        for tracking_id in tracking_mask_ids:
             objects_count += 1
             new_tracking_id = objects_count
             new_mask_copy = ObjectInfo()

@@ -111,7 +111,7 @@ class CommonUtils:
                 json_data_labels = json_data["labels"].items()
 
                 detections, labels = CommonUtils.get_detection_from_mask(mask, json_data_labels)
-                if detections or labels is None:
+                if detections is None or labels is None:
                     continue
 
                 label_texts = [f"{key}: {name}" for key, name in labels]

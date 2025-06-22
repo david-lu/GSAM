@@ -99,7 +99,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             outputs,                          # Raw model outputs
             inputs.input_ids,                 # Input token IDs
             box_threshold=0.3,                # Confidence threshold for box detection
-            text_threshold=0.4,               # Confidence threshold for text detection
+            text_threshold=0.25,               # Confidence threshold for text detection
             target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
         )
 
@@ -111,9 +111,9 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         # Extract the detected bounding boxes from results
         input_boxes = results[0]["boxes"]     # Bounding boxes for detected objects
         # print("results[0]",results[0])
-        OBJECTS = results[0]["labels"]        # Labels for the detected objects
+        input_labels = results[0]["labels"]        # Labels for the detected objects
         if input_boxes.shape[0] != 0:  # If objects were detected
-            print(f"Objects {OBJECTS} detected in the frame {start_frame_idx}. detecting masks...")
+            print(f"Objects {input_labels} detected in the frame {start_frame_idx}. detecting masks...")
 
             # Use SAM 2 to generate masks for each detected object's bounding box
             masks, scores, logits = image_predictor.predict(
@@ -124,6 +124,8 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             )
 
             print("MASK SHAPE", masks.shape)
+            print("MASK SCORES", scores)
+            # print("MASK LOGITS", logits)
 
             # Normalize mask shape to (n, H, W) format
             if masks.ndim == 2:
@@ -143,7 +145,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                 # Add the current frame's masks, boxes, and labels to mask_dict
                 mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
                                                    box_list=torch.tensor(input_boxes),        # Convert boxes to tensor
-                                                   label_list=OBJECTS)                        # Labels for the objects
+                                                   label_list=input_labels)                        # Labels for the objects
             else:
                 raise NotImplementedError("SAM 2 video predictor only support mask prompts")
         else:
