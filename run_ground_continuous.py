@@ -81,7 +81,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     print("Total frames:", len(frame_names))
     for start_frame_idx in range(0, len(frame_names), step):
         # Prompt Grounding DINO to get the box coordinates on a specific frame
-        print(f"========================= FRAME {start_frame_idx} ===================================")
+        print(f"============================ {start_frame_idx} ===================================")
         img_path = os.path.join(INPUT_FRAME_DIR, frame_names[start_frame_idx])
         image = Image.open(img_path).convert("RGB")
         image_base_name = frame_names[start_frame_idx].split(".")[0]
@@ -98,10 +98,12 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         results = processor.post_process_grounded_object_detection(
             outputs,                          # Raw model outputs
             inputs.input_ids,                 # Input token IDs
-            box_threshold=0.3,                # Confidence threshold for box detection
-            text_threshold=0.4,               # Confidence threshold for text detection
+            box_threshold=0.35,                # Confidence threshold for box detection
+            text_threshold=0.25,               # Confidence threshold for text detection
             target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
         )
+
+        print("BBOX", results)
 
         # Set the current image for SAM (Segment Anything Model) predictor
         image_predictor.set_image(np.array(image.convert("RGB")))
@@ -109,9 +111,9 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         # Extract the detected bounding boxes from results
         input_boxes = results[0]["boxes"]     # Bounding boxes for detected objects
         # print("results[0]",results[0])
-        OBJECTS = results[0]["labels"]        # Labels for the detected objects
+        input_labels = results[0]["labels"]        # Labels for the detected objects
         if input_boxes.shape[0] != 0:  # If objects were detected
-            print(f"Objects {OBJECTS} detected in the frame {start_frame_idx}. detecting masks...")
+            print(f"Objects {input_labels} detected in the frame {start_frame_idx}. detecting masks...")
 
             # Use SAM 2 to generate masks for each detected object's bounding box
             masks, scores, logits = image_predictor.predict(
@@ -120,6 +122,11 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                 box=input_boxes,              # Using bounding boxes as prompts
                 multimask_output=False,       # Only generate one mask per box
             )
+
+            print("MASK SHAPE", masks.shape)
+            print("MASK SCORES", scores)
+            # print("MASK LOGITS", logits)
+
             # Normalize mask shape to (n, H, W) format
             if masks.ndim == 2:
                 masks = masks[None]           # Add batch dimension if missing
@@ -131,12 +138,14 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             Step 3: Register each object's positive points to video predictor
             """
 
+            print("MASK 0", masks[0])
+
             # Step 3: Register detected objects' masks to the video predictor
             if mask_dict.promote_type == "mask":
                 # Add the current frame's masks, boxes, and labels to mask_dict
                 mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
                                                    box_list=torch.tensor(input_boxes),        # Convert boxes to tensor
-                                                   label_list=OBJECTS)                        # Labels for the objects
+                                                   label_list=input_labels)                        # Labels for the objects
             else:
                 raise NotImplementedError("SAM 2 video predictor only support mask prompts")
         else:
@@ -193,7 +202,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                     # Convert logits to binary mask (threshold at 0.0)
                     out_mask = (out_mask_logits[i] > 0.0)  # .cpu().numpy()
                     # Create object info with mask, class name and logit
-                    object_info = ObjectInfo(instance_id=out_obj_id, 
+                    object_info = ObjectInfo(instance_id=out_obj_id,
                                            mask=out_mask[0],
                                            class_name=mask_dict.get_target_class_name(out_obj_id),
                                            logit=mask_dict.get_target_logit(out_obj_id))
@@ -231,19 +240,19 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             json_data_path = os.path.join(JSON_DATA_DIR, frame_masks_info.mask_name.replace(".npy", ".json"))
             frame_masks_info.to_json(json_data_path)
 
-    CommonUtils.draw_masks_and_box_with_supervision(
-        INPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR, OUTPUT_FRAME_DIR)
-
     if not reverse:
-        CommonUtils.draw_cleaned_masks(
+        CommonUtils.draw_masks_and_box_with_supervision(
             INPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR, OUTPUT_FRAME_DIR)
+        # CommonUtils.draw_cleaned_masks(
+        #     INPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR, OUTPUT_FRAME_DIR)
         return
 
     print("============================== REVERSE TRACKING =================================")
     start_object_id = 0
     object_info_dict = {}
     for frame_idx, current_object_count in frame_object_count.items():
-        print(f"Reverse tracking frame {frame_idx}. Frame Object count: {frame_object_count}")
+        print(f"============================ REVERSE {frame_idx} ===================================")
+        print(f"Frame Object count: {frame_object_count}")
         mask_added = False
         if frame_idx != 0:
             video_predictor.reset_state(inference_state)
@@ -256,9 +265,10 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             print(f"mask_array: {mask_array}")
             for object_id in range(start_object_id + 1, current_object_count + 1):
                 print(f"Reverse tracking object {object_id}")
-                object_info_dict[object_id] = json_data.labels[object_id]
-                video_predictor.add_new_mask(inference_state, frame_idx, object_id, mask_array == object_id)
-                mask_added = True
+                if object_id in json_data.labels:
+                    object_info_dict[object_id] = json_data.labels[object_id]
+                    video_predictor.add_new_mask(inference_state, frame_idx, object_id, mask_array == object_id)
+                    mask_added = True
         start_object_id = current_object_count
 
         if not mask_added:
@@ -293,8 +303,10 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             np.save(mask_data_path, mask_array)
             json_data.to_json(json_data_path)
 
-    CommonUtils.draw_cleaned_masks(
+    CommonUtils.draw_masks_and_box_with_supervision(
         INPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR, OUTPUT_FRAME_DIR)
+    # CommonUtils.draw_cleaned_masks(
+    #     INPUT_FRAME_DIR, MASK_DATA_DIR, JSON_DATA_DIR, OUTPUT_FRAME_DIR)
 
 def track_from_video_file(
     text_prompt: str,

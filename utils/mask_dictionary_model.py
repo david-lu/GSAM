@@ -35,23 +35,63 @@ def calculate_iou(mask1, mask2):
     iou = intersection / union
     return iou
 
-def calculate_bbox_iou(box1: BoundingBox, box2: BoundingBox):
-    x1, y1, x2, y2 = box1
-    x3, y3, x4, y4 = box2
+def bbox_contains(
+    outer_bbox: BoundingBox,
+    inner_bbox: BoundingBox,
+    threshold: float = 0.0
+) -> bool:
+    """
+    Checks if an outer bounding box contains an inner bounding box, with an optional threshold.
 
-    # Calculate intersection area
-    dx = min(x2, x4) - max(x1, x3)
-    dy = min(y2, y4) - max(y1, y3)
-    intersection = max(0, dx) * max(0, dy)
+    A bounding box is defined as (x_min, y_min, x_max, y_max).
 
-    # Calculate union area
-    box1_area = (x2 - x1) * (y2 - y1)
-    box2_area = (x4 - x3) * (y4 - y3)
-    union = box1_area + box2_area - intersection
+    Args:
+        outer_bbox (BoundingBox): The outer bounding box (potential container).
+        inner_bbox (BoundingBox): The inner bounding box (potential contained).
+        threshold (float): A value between 0.0 and 1.0 (inclusive).
+                           If threshold > 0, inner_bbox is considered contained
+                           if it's within outer_bbox plus a margin.
+                           The margin is calculated as a percentage of outer_bbox's
+                           width and height.
+                           For example, a threshold of 0.1 means inner_bbox can
+                           extend up to 10% of outer_bbox's dimension outside
+                           outer_bbox and still be considered contained.
+                           A negative threshold would make containment stricter,
+                           requiring inner_bbox to be smaller than outer_bbox.
 
-    # Calculate IoU
-    iou = intersection / union
-    return iou
+    Returns:
+        bool: True if outer_bbox contains inner_bbox (with respect to the threshold),
+              False otherwise.
+    """
+    ox_min, oy_min, ox_max, oy_max = outer_bbox
+    ix_min, iy_min, ix_max, iy_max = inner_bbox
+
+    # Calculate dimensions of the outer bounding box
+    outer_width = ox_max - ox_min
+    outer_height = oy_max - oy_min
+
+    # Calculate margins based on threshold and outer_bbox's dimensions
+    # A positive margin expands the outer_bbox for the check.
+    margin_x = threshold * outer_width
+    margin_y = threshold * outer_height
+
+    # Check if inner_bbox is contained within outer_bbox, considering the margin
+    # For containment, inner_bbox's min coordinates must be >= outer_bbox's min - margin
+    # and inner_bbox's max coordinates must be <= outer_bbox's max + margin.
+    is_contained = (
+        (ix_min >= ox_min - margin_x) and
+        (iy_min >= oy_min - margin_y) and
+        (ix_max <= ox_max + margin_x) and
+        (iy_max <= oy_max + margin_y)
+    )
+
+    return is_contained
+
+
+def bbox_vore(mask_a, mask_b):
+    bbox_a = calculate_bbox(mask_a)
+    bbox_b = calculate_bbox(mask_b)
+    return bbox_contains(bbox_a, bbox_b, 0.1) or bbox_contains(bbox_b, bbox_a, 0.1) 
 
 @dataclass
 class MaskDictionaryModel:
@@ -88,7 +128,6 @@ class MaskDictionaryModel:
             self,
             tracking_annotation_dict,
             iou_threshold=0.8,
-            bbox_iou_threshold=0.8,
             objects_count=0) -> int:
         updated_masks = {}
 
@@ -106,11 +145,15 @@ class MaskDictionaryModel:
 
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
                 iou = calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
-                bounding_box_iou = calculate_bbox_iou(
-                    calculate_bbox(seg_mask.mask),
-                    calculate_bbox(object_info.mask))
-                print(f"iou between {object_id} and {seg_obj_id}: {iou}, bbox_iou: {bounding_box_iou}")
-                if iou > iou_threshold or bounding_box_iou > bbox_iou_threshold:
+
+                bbox_old = calculate_bbox(seg_mask.mask)
+                bbox_new = calculate_bbox(object_info.mask)
+                old_contains_new = bbox_contains(bbox_old, bbox_new, 0.1)
+                new_contains_old = bbox_contains(bbox_new, bbox_old, 0.1)
+
+                print(f"iou between {object_id} {object_info.class_name} and {seg_obj_id} {seg_mask.class_name}: {iou}", 
+                      f"old_contains_new: {old_contains_new}, new_contains_old: {new_contains_old}")
+                if iou > iou_threshold or ((old_contains_new or new_contains_old) and seg_mask.class_name == object_info.class_name):
                     new_mask_copy.mask = new_mask_copy.mask | object_info.mask.bool()
                     print(f'combining masks for object {seg_obj_id} and {object_id} with iou {iou}')
                     object_id in tracking_mask_ids and tracking_mask_ids.remove(object_id)

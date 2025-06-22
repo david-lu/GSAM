@@ -81,7 +81,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     print("Total frames:", len(frame_names))
     for start_frame_idx in range(0, len(frame_names), step):
         # Prompt Grounding DINO to get the box coordinates on a specific frame
-        print(f"========================= FRAME {start_frame_idx} ===================================")
+        print(f"============================ {start_frame_idx} ===================================")
         img_path = os.path.join(INPUT_FRAME_DIR, frame_names[start_frame_idx])
         image = Image.open(img_path).convert("RGB")
         image_base_name = frame_names[start_frame_idx].split(".")[0]
@@ -251,7 +251,8 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     start_object_id = 0
     object_info_dict = {}
     for frame_idx, current_object_count in frame_object_count.items():
-        print(f"Reverse tracking frame {frame_idx}. Frame Object count: {frame_object_count}")
+        print(f"============================ REVERSE {frame_idx} ===================================")
+        print(f"Frame Object count: {frame_object_count}")
         mask_added = False
         if frame_idx != 0:
             video_predictor.reset_state(inference_state)
