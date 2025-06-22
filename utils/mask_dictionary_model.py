@@ -51,9 +51,11 @@ class MaskDictionaryModel:
             if seg_mask.mask.sum() == 0:
                 continue
 
-            new_mask_copy = ObjectInfo(instance_id=seg_obj_id,
-                                       mask=seg_mask.mask.bool(),
-                                       class_name=seg_mask.class_name)
+            new_mask_copy = ObjectInfo(
+                instance_id=seg_obj_id,
+                mask=seg_mask.mask.bool(),
+                class_name=seg_mask.class_name)
+
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
                 iou = self.calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
                 # print("iou", iou, objects_count)
@@ -68,11 +70,13 @@ class MaskDictionaryModel:
         for tracking_id in tracking_mask_ids:
             objects_count += 1
             new_tracking_id = objects_count
-            new_mask_copy = ObjectInfo()
-            new_mask_copy.instance_id = new_tracking_id
-            new_mask_copy.mask = tracking_annotation_dict.labels[tracking_id].mask.bool()
-            new_mask_copy.class_name = tracking_annotation_dict.labels[tracking_id].class_name
+
             print(f'adding new mask object with id {new_tracking_id}')
+            new_mask_copy = ObjectInfo(
+                instance_id=new_tracking_id,
+                mask=tracking_annotation_dict.labels[tracking_id].mask.bool(),
+                class_name=tracking_annotation_dict.labels[tracking_id].class_name)
+
             updated_masks[new_tracking_id] = new_mask_copy
 
         print('updated_masks', list(updated_masks.keys()))
