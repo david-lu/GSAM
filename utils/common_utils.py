@@ -88,7 +88,11 @@ class CommonUtils:
         return detections, labels
 
     @staticmethod
-    def draw_masks_and_box_with_supervision(raw_image_path, mask_path, json_path, output_path):
+    def draw_masks_and_box_with_supervision(
+            raw_image_path: str,
+            mask_path: str,
+            json_path: str,
+            output_path: str):
         CommonUtils.creat_dirs(output_path)
         raw_image_name_list = os.listdir(raw_image_path)
         raw_image_name_list.sort()

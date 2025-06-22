@@ -423,15 +423,16 @@ class SAM2ImagePredictor:
             feat_level[img_idx].unsqueeze(0)
             for feat_level in self._features["high_res_feats"]
         ]
+        
         low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
             image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0),
             image_pe=self.model.sam_prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
-            hq_token_only= hq_token_only,
             repeat_image=batched_mode,
             high_res_features=high_res_features,
+            **({"hq_token_only": True} if hq_token_only else {})
         )
 
         # Upscale the masks to the original image resolution
