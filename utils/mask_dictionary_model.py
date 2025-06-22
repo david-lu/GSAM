@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import json
 import torch
@@ -5,6 +7,32 @@ import copy
 import os
 import cv2
 from dataclasses import dataclass, field
+
+def calculate_bbox(mask) -> Tuple[int, int, int, int] | None:
+    nonzero_indices = torch.nonzero(mask)
+
+    if nonzero_indices.size(0) == 0:
+        # print("nonzero_indices", nonzero_indices)
+        return None
+
+    y_min, x_min = torch.min(nonzero_indices, dim=0)[0]
+    y_max, x_max = torch.max(nonzero_indices, dim=0)[0]
+
+    return x_min.item(), y_min.item(), x_max.item(), y_max.item()
+
+def calculate_iou(mask1, mask2):
+    # Convert masks to float tensors for calculations
+    mask1 = mask1.to(torch.float32)
+    mask2 = mask2.to(torch.float32)
+
+    # Calculate intersection and union
+    intersection = (mask1 * mask2).sum()
+    union = mask1.sum() + mask2.sum() - intersection
+
+    # Calculate IoU
+    iou = intersection / union
+    return iou
+
 
 @dataclass
 class MaskDictionaryModel:
@@ -41,6 +69,7 @@ class MaskDictionaryModel:
             self,
             tracking_annotation_dict,
             iou_threshold=0.8,
+            bbox_iou_threshold=0.8,
             objects_count=0) -> int:
         updated_masks = {}
 
@@ -57,7 +86,7 @@ class MaskDictionaryModel:
                 class_name=seg_mask.class_name)
 
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
-                iou = self.calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
+                iou = calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
                 # print("iou", iou, objects_count)
                 if iou > iou_threshold:
                     new_mask_copy.mask = new_mask_copy.mask | object_info.mask.bool()
@@ -76,6 +105,9 @@ class MaskDictionaryModel:
                 instance_id=new_tracking_id,
                 mask=tracking_annotation_dict.labels[tracking_id].mask.bool(),
                 class_name=tracking_annotation_dict.labels[tracking_id].class_name)
+
+            if new_mask_copy.mask.sum() == 0:
+                continue
 
             updated_masks[new_tracking_id] = new_mask_copy
 
@@ -98,7 +130,7 @@ class MaskDictionaryModel:
                 continue
             
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
-                iou = self.calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
+                iou = calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
                 # print("iou", iou, objects_count)
                 if iou > iou_threshold:
                     flag = object_info.instance_id
@@ -122,21 +154,6 @@ class MaskDictionaryModel:
 
     def get_target_logit(self, instance_id):
         return self.labels[instance_id].logit
-    
-    @staticmethod
-    def calculate_iou(mask1, mask2):
-        # Convert masks to float tensors for calculations
-        mask1 = mask1.to(torch.float32)
-        mask2 = mask2.to(torch.float32)
-        
-        # Calculate intersection and union
-        intersection = (mask1 * mask2).sum()
-        union = mask1.sum() + mask2.sum() - intersection
-        
-        # Calculate IoU
-        iou = intersection / union
-        return iou
-
 
     def save_empty_mask_and_json(self, mask_data_dir, json_data_dir, image_name_list=None):
         mask_img = torch.zeros((self.mask_height, self.mask_width))
@@ -180,6 +197,8 @@ class MaskDictionaryModel:
         return self
 
 
+
+
 @dataclass
 class ObjectInfo:
     instance_id:int = 0
@@ -198,24 +217,12 @@ class ObjectInfo:
         return self.instance_id
 
     def update_box(self):
-        # 找到所有非零值的索引
-        nonzero_indices = torch.nonzero(self.mask)
-        
-        # 如果没有非零值，返回一个空的边界框
-        if nonzero_indices.size(0) == 0:
-            # print("nonzero_indices", nonzero_indices)
-            return []
-        
-        # 计算最小和最大索引
-        y_min, x_min = torch.min(nonzero_indices, dim=0)[0]
-        y_max, x_max = torch.max(nonzero_indices, dim=0)[0]
-        
-        # 创建边界框 [x_min, y_min, x_max, y_max]
-        bbox = [x_min.item(), y_min.item(), x_max.item(), y_max.item()]        
-        self.x1 = bbox[0]
-        self.y1 = bbox[1]
-        self.x2 = bbox[2]
-        self.y2 = bbox[3]
+        bbox = calculate_bbox(self.mask)
+        if bbox is not None:
+            self.x1 = bbox[0]
+            self.y1 = bbox[1]
+            self.x2 = bbox[2]
+            self.y2 = bbox[3]
     
     def to_dict(self):
         return {

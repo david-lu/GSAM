@@ -98,7 +98,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         results = processor.post_process_grounded_object_detection(
             outputs,                          # Raw model outputs
             inputs.input_ids,                 # Input token IDs
-            box_threshold=0.3,                # Confidence threshold for box detection
+            box_threshold=0.35,                # Confidence threshold for box detection
             text_threshold=0.25,               # Confidence threshold for text detection
             target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
         )
