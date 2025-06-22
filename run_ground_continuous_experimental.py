@@ -264,9 +264,10 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             print(f"mask_array: {mask_array}")
             for object_id in range(start_object_id + 1, current_object_count + 1):
                 print(f"Reverse tracking object {object_id}")
-                object_info_dict[object_id] = json_data.labels[object_id]
-                video_predictor.add_new_mask(inference_state, frame_idx, object_id, mask_array == object_id)
-                mask_added = True
+                if object_id in json_data.labels:
+                    object_info_dict[object_id] = json_data.labels[object_id]
+                    video_predictor.add_new_mask(inference_state, frame_idx, object_id, mask_array == object_id)
+                    mask_added = True
         start_object_id = current_object_count
 
         if not mask_added:

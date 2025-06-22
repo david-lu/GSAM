@@ -18,6 +18,11 @@ echo "[INFO] Override mode: $OVERRIDE"
 mkdir -p "$OUTPUT_DIR"
 
 for video in "$INPUT_DIR"/*; do
+    # Skip directories and non-files
+    if [ ! -f "$video" ]; then
+        continue
+    fi
+    
     filename=$(basename "$video")
     output_file="$OUTPUT_DIR/$filename"
 
@@ -36,5 +41,4 @@ for video in "$INPUT_DIR"/*; do
         echo "[ERROR] Failed to process $filename"
     fi
 done
-
 echo "[INFO] Batch processing complete."
