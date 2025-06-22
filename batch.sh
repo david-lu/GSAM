@@ -4,14 +4,14 @@
 OVERRIDE=false
 
 #INPUT_DIR="/home/chicken/Videos/split_adaptive/sword_in_the_stone/"
-#INPUT_DIR="/home/chicken/Videos/input/"
-#OUTPUT_DIR="/home/chicken/Videos/output"
+INPUT_DIR="/home/chicken/Videos/input/"
+OUTPUT_DIR="/home/chicken/Videos/output_experimental"
 
-INPUT_DIR="/home/chicken/Videos/split_adaptive/cinderella/"
-OUTPUT_DIR="/home/chicken/Videos/output/cinderella"
+#INPUT_DIR="/home/chicken/Videos/split_adaptive/robin_hood"
+#OUTPUT_DIR="/home/chicken/Videos/output/robin_hood_continuous"
 
 SCRIPT_DIR="/home/chicken/Documents/GitHub/GSAM"
-MASK_SCRIPT="$SCRIPT_DIR/run_ground_continuous.py"
+MASK_SCRIPT="$SCRIPT_DIR/run_ground_continuous_experimental.py"
 
 echo "[INFO] Starting batch video processing."
 echo "[INFO] Override mode: $OVERRIDE"
