@@ -71,7 +71,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     inference_state = video_predictor.init_state(video_path=INPUT_FRAME_DIR)
 
     # Initialize the mask dictionary model
-    sam2_masks = MaskDictionaryModel()
+    current_mask_dict = MaskDictionaryModel()
     objects_count = 0
     frame_object_count = {}
 
@@ -85,7 +85,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         img_path = os.path.join(INPUT_FRAME_DIR, frame_names[start_frame_idx])
         image = Image.open(img_path).convert("RGB")
         image_base_name = frame_names[start_frame_idx].split(".")[0]
-        mask_dict = MaskDictionaryModel(
+        pre_video_mask_dict = MaskDictionaryModel(
             promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
 
         # Run Grounding DINO on the image
@@ -123,8 +123,6 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                 multimask_output=False,       # Only generate one mask per box
             )
 
-            print("MASK SHAPE", masks.shape)
-            print("MASK SCORES", scores)
             # print("MASK LOGITS", logits)
 
             # Normalize mask shape to (n, H, W) format
@@ -138,12 +136,15 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             Step 3: Register each object's positive points to video predictor
             """
 
+            print("MASK SHAPE", masks.shape)
+            print("MASK SCORES", scores)
             print("MASK 0", masks[0])
+            
 
             # Step 3: Register detected objects' masks to the video predictor
-            if mask_dict.promote_type == "mask":
+            if pre_video_mask_dict.promote_type == "mask":
                 # Add the current frame's masks, boxes, and labels to mask_dict
-                mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
+                pre_video_mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
                                                    box_list=torch.tensor(input_boxes),        # Convert boxes to tensor
                                                    label_list=input_labels)                        # Labels for the objects
             else:
@@ -151,26 +152,26 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         else:
             # No objects detected in this frame
             print(f"No object detected in the frame {start_frame_idx}, skip frame merge")
-            mask_dict = sam2_masks  # Use previous masks
+            pre_video_mask_dict = current_mask_dict  # Use previous masks
 
         """
         Step 4: Propagate the video predictor to get the segmentation results for each frame
         """
         # Updates mask_dict by merging with tracking annotations based on IoU threshold
         # Returns and updates the count of unique objects tracked so far
-        new_mask_dict = copy.deepcopy(sam2_masks)
-        objects_count = new_mask_dict.new_update_masks(
-            tracking_annotation_dict=mask_dict,
+        working_current_mask_dict = copy.deepcopy(current_mask_dict)
+        objects_count = working_current_mask_dict.new_update_masks(
+            tracking_annotation_dict=pre_video_mask_dict,
             iou_threshold=0.8,
             objects_count=objects_count)
-        mask_dict = new_mask_dict
+        pre_video_mask_dict = working_current_mask_dict
         # Store the object count for this frame
         frame_object_count[start_frame_idx] = objects_count
         print("objects_count", objects_count)
 
-        if len(mask_dict.labels) == 0:
+        if len(pre_video_mask_dict.labels) == 0:
             # If no objects to track, save empty masks and JSON data
-            mask_dict.save_empty_mask_and_json(MASK_DATA_DIR,                # Directory to save mask files
+            pre_video_mask_dict.save_empty_mask_and_json(MASK_DATA_DIR,                # Directory to save mask files
                                                JSON_DATA_DIR,                # Directory to save JSON annotation files
                                                image_name_list=frame_names[start_frame_idx:start_frame_idx + step])
             print("No object detected in the frame, skip the frame {}".format(start_frame_idx))
@@ -180,7 +181,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             video_predictor.reset_state(inference_state)
 
             # For each detected object, add its mask to the video predictor
-            for object_id, object_info in mask_dict.labels.items():
+            for object_id, object_info in pre_video_mask_dict.labels.items():
                 frame_idx, out_obj_ids, out_mask_logits = video_predictor.add_new_mask(
                     inference_state,          # Current inference state
                     start_frame_idx,          # Starting frame index
@@ -195,30 +196,31 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                     inference_state,
                     max_frame_num_to_track=step,      # Maximum frames to track forward
                     start_frame_idx=start_frame_idx): # Starting frame index
-                frame_masks = MaskDictionaryModel()   # Container for this frame's masks
+                post_video_mask_dict = MaskDictionaryModel()   # Container for this frame's masks
 
                 # Process each object's mask for this frame
                 for i, out_obj_id in enumerate(out_obj_ids):
                     # Convert logits to binary mask (threshold at 0.0)
                     out_mask = (out_mask_logits[i] > 0.0)  # .cpu().numpy()
                     # Create object info with mask, class name and logit
-                    object_info = ObjectInfo(instance_id=out_obj_id, 
-                                           mask=out_mask[0],
-                                           class_name=mask_dict.get_target_class_name(out_obj_id),
-                                           logit=mask_dict.get_target_logit(out_obj_id))
+                    object_info = ObjectInfo(
+                        instance_id=out_obj_id, 
+                        mask=out_mask[0],
+                        class_name=pre_video_mask_dict.get_target_class_name(out_obj_id),
+                        logit=pre_video_mask_dict.get_target_logit(out_obj_id))
                     object_info.update_box()  # Update bounding box based on mask
                     # Add this object to the current frame's masks
-                    frame_masks.labels[out_obj_id] = object_info
+                    post_video_mask_dict.labels[out_obj_id] = object_info
                     # Create mask filename based on frame name
                     image_base_name = frame_names[out_frame_idx].split(".")[0]
-                    frame_masks.mask_name = f"mask_{image_base_name}.npy"
-                    frame_masks.mask_height = out_mask.shape[-2]
-                    frame_masks.mask_width = out_mask.shape[-1]
+                    post_video_mask_dict.mask_name = f"mask_{image_base_name}.npy"
+                    post_video_mask_dict.mask_height = out_mask.shape[-2]
+                    post_video_mask_dict.mask_width = out_mask.shape[-1]
 
                 # Store this frame's masks in the video segments dictionary
-                video_segments[out_frame_idx] = frame_masks
+                video_segments[out_frame_idx] = post_video_mask_dict
                 # Update tracking state for next iteration
-                sam2_masks = copy.deepcopy(frame_masks)
+                current_mask_dict = copy.deepcopy(post_video_mask_dict)
 
             print("video_segments:", len(video_segments))
         """
