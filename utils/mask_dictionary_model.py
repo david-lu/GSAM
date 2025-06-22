@@ -8,7 +8,9 @@ import os
 import cv2
 from dataclasses import dataclass, field
 
-def calculate_bbox(mask) -> Tuple[int, int, int, int] | None:
+BoundingBox = Tuple[int, int, int, int]
+
+def calculate_bbox(mask) -> BoundingBox | None:
     nonzero_indices = torch.nonzero(mask)
 
     if nonzero_indices.size(0) == 0:
@@ -33,6 +35,23 @@ def calculate_iou(mask1, mask2):
     iou = intersection / union
     return iou
 
+def calculate_bbox_iou(box1: BoundingBox, box2: BoundingBox):
+    x1, y1, x2, y2 = box1
+    x3, y3, x4, y4 = box2
+
+    # Calculate intersection area
+    dx = min(x2, x4) - max(x1, x3)
+    dy = min(y2, y4) - max(y1, y3)
+    intersection = max(0, dx) * max(0, dy)
+
+    # Calculate union area
+    box1_area = (x2 - x1) * (y2 - y1)
+    box2_area = (x4 - x3) * (y4 - y3)
+    union = box1_area + box2_area - intersection
+
+    # Calculate IoU
+    iou = intersection / union
+    return iou
 
 @dataclass
 class MaskDictionaryModel:
@@ -87,8 +106,11 @@ class MaskDictionaryModel:
 
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
                 iou = calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
-                # print("iou", iou, objects_count)
-                if iou > iou_threshold:
+                bounding_box_iou = calculate_bbox_iou(
+                    calculate_bbox(seg_mask.mask),
+                    calculate_bbox(object_info.mask))
+                print(f"iou between {object_id} and {seg_obj_id}: {iou}, bbox_iou: {bounding_box_iou}")
+                if iou > iou_threshold or bounding_box_iou > bbox_iou_threshold:
                     new_mask_copy.mask = new_mask_copy.mask | object_info.mask.bool()
                     print(f'combining masks for object {seg_obj_id} and {object_id} with iou {iou}')
                     object_id in tracking_mask_ids and tracking_mask_ids.remove(object_id)
