@@ -53,7 +53,7 @@ grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_model
 type VideoPropagationResult = tuple[np.ndarray, list[int], np.ndarray]
 
 
-def generate_chunks(total_length: int, step: int) -> list[tuple[int, int]]:
+def generate_iteration_chunks(total_length: int, step: int, bidirectional: bool = False) -> list[tuple[int, int]]:
     if step <= 0:
         raise ValueError("Step must be a positive integer.")
     if total_length < 0:
@@ -62,8 +62,12 @@ def generate_chunks(total_length: int, step: int) -> list[tuple[int, int]]:
     chunks = []
     for start_index in range(0, total_length, step):
         # Calculate the end index, ensuring it doesn't exceed total_length
-        end_index = min(start_index + step, total_length)
+        end_index = min(start_index + step, total_length - 1)
         chunks.append((start_index, end_index))
+
+    if bidirectional:
+        reversed_chunks = [(chunk[1], chunk[0]) for chunk in chunks[::-1]]
+        chunks = [*chunks, *reversed_chunks]
     return chunks
 
 
@@ -128,7 +132,8 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     """
     print("Total frames:", len(frame_names))
 
-    start_end_chunks = generate_chunks(len(frame_names), step)
+    start_end_chunks = generate_iteration_chunks(len(frame_names), step, reverse)
+    print("Start end chunks:", start_end_chunks)
 
     for start_frame_idx, end_frame_idx in start_end_chunks:
         # Prompt Grounding DINO to get the box coordinates on a specific frame
@@ -237,7 +242,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             # Propagate object masks to subsequent frames
             propagation_results: VideoPropagationResult = video_predictor.propagate_in_video(
                 inference_state,
-                max_frame_num_to_track=end_frame_idx - start_frame_idx,      # Maximum frames to track forward
+                max_frame_num_to_track=abs(end_frame_idx - start_frame_idx),      # Maximum frames to track forward
                 start_frame_idx=start_frame_idx,
                 reverse=start_frame_idx > end_frame_idx) # Starting frame index
 
@@ -341,7 +346,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animation character holding a prop. ",
+        "multiple animated cartoon character holding props. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 

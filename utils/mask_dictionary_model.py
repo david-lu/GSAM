@@ -36,8 +36,8 @@ def calculate_iou(mask1, mask2):
     return iou
 
 def bbox_contains(
-    outer_bbox: BoundingBox,
-    inner_bbox: BoundingBox,
+    outer_bbox: BoundingBox | None,
+    inner_bbox: BoundingBox | None,
     threshold: float = 0.0
 ) -> bool:
     """
@@ -63,6 +63,9 @@ def bbox_contains(
         bool: True if outer_bbox contains inner_bbox (with respect to the threshold),
               False otherwise.
     """
+    if outer_bbox is None or inner_bbox is None:
+        return False
+
     ox_min, oy_min, ox_max, oy_max = outer_bbox
     ix_min, iy_min, ix_max, iy_max = inner_bbox
 
