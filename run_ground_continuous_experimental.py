@@ -292,7 +292,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
 
         for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(
                 inference_state,
-                max_frame_num_to_track=step * 2,
+                max_frame_num_to_track=step,
                 start_frame_idx=frame_idx,
                 reverse=True):
             image_base_name = frame_names[out_frame_idx].split(".")[0]
@@ -303,15 +303,23 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             # merge the reverse tracking masks with the original masks
             for i, out_obj_id in enumerate(out_obj_ids):
                 out_mask = (out_mask_logits[i] > 0.0).cpu()
+                print('SHAPE CHECK', mask_array.shape, object_info.mask.shape)
                 if out_mask.sum() == 0:
                     print("no mask for object", out_obj_id, "at frame", out_frame_idx)
                     continue
-                object_info = object_info_dict[out_obj_id]
+                
+                object_info = copy.deepcopy(object_info_dict[out_obj_id])
                 object_info.mask = out_mask[0]
                 object_info.update_box()
-                json_data.labels[out_obj_id] = object_info
-                mask_array = np.where(mask_array != out_obj_id, mask_array, 0)
-                mask_array[object_info.mask] = out_obj_id
+
+                # TRY CATCH TO HANDLE A CASE WHERE AN EXTRA MASK IS CREATED FOR SOME REASON
+                try:
+                    mask_array = np.where(mask_array != out_obj_id, mask_array, 0)
+                    json_data.labels[out_obj_id] = object_info
+                    mask_array[object_info.mask] = out_obj_id
+                except:
+                    print("ERROR", out_obj_id, out_frame_idx)
+                    continue
 
             np.save(mask_data_path, mask_array)
             json_data.to_json(json_data_path)
@@ -364,7 +372,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "animated cartoon character holding a prop. ",
+        "animation character holding a prop. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 
