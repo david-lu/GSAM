@@ -50,6 +50,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = AutoProcessor.from_pretrained(dino_model_id)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_model_id).to(device)
 
+type VideoPropagationResult = tuple[np.ndarray, list[int], np.ndarray]
+
 
 def generate_chunks(total_length: int, step: int) -> list[tuple[int, int]]:
     if step <= 0:
@@ -76,8 +78,8 @@ def ground_image(image: Image.Image, text_prompt: str) -> tuple[np.ndarray, list
     results = processor.post_process_grounded_object_detection(
         outputs,                          # Raw model outputs
         inputs.input_ids,                 # Input token IDs
-        box_threshold=0.35,                # Confidence threshold for box detection
-        text_threshold=0.25,               # Confidence threshold for text detection
+        box_threshold=0.3,                # Confidence threshold for box detection
+        text_threshold=0.4,               # Confidence threshold for text detection
         target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
     )
 
@@ -134,12 +136,17 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         img_path = os.path.join(INPUT_FRAME_DIR, frame_names[start_frame_idx])
         image = Image.open(img_path).convert("RGB")
         image_base_name = frame_names[start_frame_idx].split(".")[0]
-        pre_video_mask_dict = MaskDictionaryModel(
-            promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
 
+        pre_video_mask_dict = None
         input_boxes, input_labels = ground_image(image, text_prompt)
 
-        if input_boxes.shape[0] != 0:  # If objects were detected
+        if start_frame_idx in video_segments.keys():
+            print(f"Reusing mask for frame {start_frame_idx}")
+            pre_video_mask_dict = video_segments[start_frame_idx]
+        elif input_boxes.shape[0] != 0:  # If objects were detected
+            pre_video_mask_dict = MaskDictionaryModel(
+            promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
+
             print(f"Objects {input_labels} detected in frame {start_frame_idx}. detecting masks...")
 
             # Use SAM 2 to generate masks for each detected object's bounding box
@@ -228,10 +235,13 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                 )
 
             # Propagate object masks to subsequent frames
-            for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(
-                    inference_state,
-                    max_frame_num_to_track=end_frame_idx - start_frame_idx,      # Maximum frames to track forward
-                    start_frame_idx=start_frame_idx): # Starting frame index
+            propagation_results: VideoPropagationResult = video_predictor.propagate_in_video(
+                inference_state,
+                max_frame_num_to_track=end_frame_idx - start_frame_idx,      # Maximum frames to track forward
+                start_frame_idx=start_frame_idx,
+                reverse=start_frame_idx > end_frame_idx) # Starting frame index
+
+            for out_frame_idx, out_obj_ids, out_mask_logits in propagation_results:
                 post_video_mask_dict = MaskDictionaryModel()   # Container for this frame's masks
 
                 # Process each object's mask for this frame
