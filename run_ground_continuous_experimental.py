@@ -65,6 +65,34 @@ def generate_chunks(total_length: int, step: int) -> list[tuple[int, int]]:
     return chunks
 
 
+def ground_image(image: Image.Image, text_prompt: str) -> tuple[np.ndarray, list[str]]:
+    # Run Grounding DINO on the image
+    inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
+    with torch.no_grad():
+        outputs = grounding_model(**inputs)
+
+    # Results from a grounded object detection processor (likely GROUNDING DINO)
+    # This processes the model outputs to obtain bounding boxes and labels for detected objects
+    results = processor.post_process_grounded_object_detection(
+        outputs,                          # Raw model outputs
+        inputs.input_ids,                 # Input token IDs
+        box_threshold=0.35,                # Confidence threshold for box detection
+        text_threshold=0.25,               # Confidence threshold for text detection
+        target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
+    )
+
+    print("BBOX", results)
+
+    # Set the current image for SAM (Segment Anything Model) predictor
+    image_predictor.set_image(np.array(image.convert("RGB")))
+
+    # Extract the detected bounding boxes from results
+    input_boxes = results[0]["boxes"]     # Bounding boxes for detected objects
+    # print("results[0]",results[0])
+    input_labels = results[0]["labels"]        # Labels for the detected objects
+
+    return input_boxes, input_labels
+
 # === Inference Function ===
 def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = False):
     """
@@ -109,32 +137,10 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         pre_video_mask_dict = MaskDictionaryModel(
             promote_type=PROMPT_TYPE_FOR_VIDEO, mask_name=f"mask_{image_base_name}.npy")
 
-        # Run Grounding DINO on the image
-        inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
-        with torch.no_grad():
-            outputs = grounding_model(**inputs)
+        input_boxes, input_labels = ground_image(image, text_prompt)
 
-        # Results from a grounded object detection processor (likely GROUNDING DINO)
-        # This processes the model outputs to obtain bounding boxes and labels for detected objects
-        results = processor.post_process_grounded_object_detection(
-            outputs,                          # Raw model outputs
-            inputs.input_ids,                 # Input token IDs
-            box_threshold=0.35,                # Confidence threshold for box detection
-            text_threshold=0.25,               # Confidence threshold for text detection
-            target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
-        )
-
-        print("BBOX", results)
-
-        # Set the current image for SAM (Segment Anything Model) predictor
-        image_predictor.set_image(np.array(image.convert("RGB")))
-
-        # Extract the detected bounding boxes from results
-        input_boxes = results[0]["boxes"]     # Bounding boxes for detected objects
-        # print("results[0]",results[0])
-        input_labels = results[0]["labels"]        # Labels for the detected objects
         if input_boxes.shape[0] != 0:  # If objects were detected
-            print(f"Objects {input_labels} detected in the frame {start_frame_idx}. detecting masks...")
+            print(f"Objects {input_labels} detected in frame {start_frame_idx}. detecting masks...")
 
             # Use SAM 2 to generate masks for each detected object's bounding box
             masks, scores, logits = image_predictor.predict(
