@@ -136,17 +136,28 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             Step 3: Register each object's positive points to video predictor
             """
 
+            # FILTER OUT LOW CONFIDENCE MASKS
             print("MASK SHAPE", masks.shape)
             print("MASK SCORES", scores)
-            print("MASK 0", masks[0])
-            
+
+            high_confidence_indices = (scores >= 0.8).squeeze()
+            if high_confidence_indices.ndim == 0:
+                high_confidence_indices = np.array([high_confidence_indices])
+            masks = masks[high_confidence_indices]
+            scores = scores[high_confidence_indices]
+            logits = logits[high_confidence_indices]
+
+            print("FILTERED MASK SHAPE", masks.shape)
+            print("FILTERED MASK SCORES", scores)
 
             # Step 3: Register detected objects' masks to the video predictor
             if pre_video_mask_dict.promote_type == "mask":
                 # Add the current frame's masks, boxes, and labels to mask_dict
-                pre_video_mask_dict.add_new_frame_annotation(mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
-                                                   box_list=torch.tensor(input_boxes),        # Convert boxes to tensor
-                                                   label_list=input_labels)                        # Labels for the objects
+                pre_video_mask_dict.add_new_frame_annotation(
+                    mask_list=torch.tensor(masks).to(device),  # Convert numpy masks to tensor
+                    box_list=torch.tensor(input_boxes),        # Convert boxes to tensor
+                    label_list=input_labels
+                )                        # Labels for the objects
             else:
                 raise NotImplementedError("SAM 2 video predictor only support mask prompts")
         else:
