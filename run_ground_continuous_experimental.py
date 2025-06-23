@@ -31,6 +31,9 @@ OUTPUT_FRAME_DIR = ".tmp/output_frames"
 MASK_DATA_DIR = ".tmp/mask_data"
 JSON_DATA_DIR = ".tmp/json_data"
 
+
+MASK_SCORE_THRESHOLD = 0.8
+
 # === Load SAM2 Models ===
 sam2_checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
 model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
@@ -82,7 +85,7 @@ def ground_image(image: Image.Image, text_prompt: str) -> tuple[np.ndarray, list
     results = processor.post_process_grounded_object_detection(
         outputs,                          # Raw model outputs
         inputs.input_ids,                 # Input token IDs
-        box_threshold=0.3,                # Confidence threshold for box detection
+        box_threshold=0.4,                # Confidence threshold for box detection
         text_threshold=0.4,               # Confidence threshold for text detection
         target_sizes=[image.size[::-1]]   # Target size for scaling boxes to image dimensions
     )
@@ -179,7 +182,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             print("MASK SHAPE", masks.shape)
             print("MASK SCORES", scores)
 
-            high_confidence_indices = (scores >= 0.8).squeeze()
+            high_confidence_indices = (scores >= MASK_SCORE_THRESHOLD).squeeze()
             if high_confidence_indices.ndim == 0:
                 high_confidence_indices = np.array([high_confidence_indices])
             masks = masks[high_confidence_indices]
@@ -212,7 +215,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         working_current_mask_dict = copy.deepcopy(current_mask_dict)
         objects_count = working_current_mask_dict.new_update_masks(
             tracking_annotation_dict=pre_video_mask_dict,
-            iou_threshold=0.8,
+            iou_threshold=0.85,
             objects_count=objects_count)
         pre_video_mask_dict = working_current_mask_dict
         # Store the object count for this frame
@@ -346,7 +349,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt", type=str, default=
-        "multiple animated cartoon character holding props. ",
+        "animated cartoon characters with props. ",
         help="Text prompt for the object to track (e.g., 'car.')"
     )
 

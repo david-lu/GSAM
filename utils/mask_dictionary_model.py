@@ -148,15 +148,16 @@ class MaskDictionaryModel:
 
             for object_id, object_info in tracking_annotation_dict.labels.items():  # grounded_sam masks
                 iou = calculate_iou(seg_mask.mask, object_info.mask)  # tensor, numpy
+                print(f"iou between {object_id} {object_info.class_name} and {seg_obj_id} {seg_mask.class_name}: {iou}")
 
-                bbox_old = calculate_bbox(seg_mask.mask)
-                bbox_new = calculate_bbox(object_info.mask)
-                old_contains_new = bbox_contains(bbox_old, bbox_new, 0.1)
-                new_contains_old = bbox_contains(bbox_new, bbox_old, 0.1)
+                # bbox_old = calculate_bbox(seg_mask.mask)
+                # bbox_new = calculate_bbox(object_info.mask)
+                # old_contains_new = bbox_contains(bbox_old, bbox_new, 0.1)
+                # new_contains_old = bbox_contains(bbox_new, bbox_old, 0.1)
+                # contains = ((old_contains_new or new_contains_old) and seg_mask.class_name == object_info.class_name)
+                # print(f"old_contains_new: {old_contains_new}, new_contains_old: {new_contains_old}")
 
-                print(f"iou between {object_id} {object_info.class_name} and {seg_obj_id} {seg_mask.class_name}: {iou}", 
-                      f"old_contains_new: {old_contains_new}, new_contains_old: {new_contains_old}")
-                if iou > iou_threshold or ((old_contains_new or new_contains_old) and seg_mask.class_name == object_info.class_name):
+                if iou > iou_threshold:
                     new_mask_copy.mask = new_mask_copy.mask | object_info.mask.bool()
                     print(f'combining masks for object {seg_obj_id} and {object_id} with iou {iou}')
                     object_id in tracking_mask_ids and tracking_mask_ids.remove(object_id)
