@@ -13,7 +13,7 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 
 from utils.common_utils import draw_mask_image_with_detections, CommonUtils
-from utils.new_mask_dictionary import NewMaskDictionary, ObjectInfo
+from utils.better_mask_dictionary import BetterMaskDictionary, MaskObject
 from utils.track_utils import sample_points_from_masks
 from utils.video_utils import create_video_from_images, extract_frames_from_video
 
@@ -52,7 +52,7 @@ processor = AutoProcessor.from_pretrained(dino_model_id)
 grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_model_id).to(device)
 
 
-def clone_mask_dict(mask_dict: NewMaskDictionary, mask_name: str = None) -> NewMaskDictionary:
+def clone_mask_dict(mask_dict: BetterMaskDictionary, mask_name: str = None) -> BetterMaskDictionary:
     clone = copy.deepcopy(mask_dict)
     if mask_name is not None:
         clone.mask_name = mask_name
@@ -125,11 +125,11 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
     inference_state = video_predictor.init_state(video_path=INPUT_FRAME_DIR)
 
     # Initialize the mask dictionary model
-    current_mask_dict = NewMaskDictionary()
+    current_mask_dict = BetterMaskDictionary()
     objects_count = 0
 
     # Dictionary to store segmentation results for each frame
-    video_segments: dict[str, NewMaskDictionary] = {}  # output the following {step} frames tracking masks
+    video_segments: dict[str, BetterMaskDictionary] = {}  # output the following {step} frames tracking masks
 
     """
     Step 2: Prompt Grounding DINO and SAM image predictor to get the box and mask for all frames
@@ -154,7 +154,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             print(f"Reusing mask for frame {start_frame_idx}")
             pre_video_mask_dict = clone_mask_dict(video_segments[start_frame_idx], mask_name)
         elif input_boxes.shape[0] != 0:  # If objects were detected
-            pre_video_mask_dict = NewMaskDictionary(mask_name=mask_name)
+            pre_video_mask_dict = BetterMaskDictionary(mask_name=mask_name)
 
             print(f"Objects {input_labels} detected in frame {start_frame_idx}. detecting masks...")
 
@@ -230,7 +230,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             print(f"No object detected in the frame {start_frame_idx} skipping the frames {chunk}")
             
             for chunk_idx in chunk:
-                video_segments[chunk_idx] = NewMaskDictionary(
+                video_segments[chunk_idx] = BetterMaskDictionary(
                     mask_name=f"mask_{frame_names[chunk_idx].split('.')[0]}.npy",
                     mask_width=image.width,
                     mask_height=image.height
@@ -254,7 +254,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
             reverse=start_frame_idx > end_frame_idx
             ):
             image_base_name = frame_names[out_frame_idx].split(".")[0]
-            post_video_mask_dict = NewMaskDictionary(
+            post_video_mask_dict = BetterMaskDictionary(
                 mask_name=f"mask_{image_base_name}.npy"
             )   # Container for this frame's masks
 
@@ -265,7 +265,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
                 # Convert logits to binary mask (threshold at 0.0)
                 out_mask = (out_mask_logits[i] > 0.0)  # .cpu().numpy()
                 # Create object info with mask, class name and logit
-                object_info = ObjectInfo(
+                object_info = MaskObject(
                     instance_id=out_obj_id, 
                     mask=out_mask[0],
                     class_name=pre_video_mask_dict.get_target_class_name(out_obj_id),

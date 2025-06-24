@@ -97,7 +97,7 @@ def bbox_vore(mask_a, mask_b):
     return bbox_contains(bbox_a, bbox_b, 0.1) or bbox_contains(bbox_b, bbox_a, 0.1) 
 
 @dataclass
-class NewMaskDictionary:
+class BetterMaskDictionary:
     mask_name: str = None
     mask_height: int = None
     mask_width: int = None
@@ -117,7 +117,7 @@ class NewMaskDictionary:
             # print("label", label)
             name = label
             box = box # .numpy().tolist()
-            new_annotation = ObjectInfo(instance_id = final_index, mask = mask, class_name = name, x1 = box[0], y1 = box[1], x2 = box[2], y2 = box[3])
+            new_annotation = MaskObject(instance_id = final_index, mask = mask, class_name = name, x1 = box[0], y1 = box[1], x2 = box[2], y2 = box[3])
             anno_2d[final_index] = new_annotation
 
         # np.save(os.path.join(output_dir, output_file_name), mask_img.numpy().astype(np.uint16))
@@ -141,7 +141,7 @@ class NewMaskDictionary:
             if seg_mask.mask.sum() == 0:
                 continue
 
-            new_mask_copy = ObjectInfo(
+            new_mask_copy = MaskObject(
                 instance_id=seg_obj_id,
                 mask=seg_mask.mask.bool(),
                 class_name=seg_mask.class_name)
@@ -170,7 +170,7 @@ class NewMaskDictionary:
             new_tracking_id = objects_count
 
             print(f'adding new mask object with id {new_tracking_id}')
-            new_mask_copy = ObjectInfo(
+            new_mask_copy = MaskObject(
                 instance_id=new_tracking_id,
                 mask=new_mask_dict.labels[tracking_id].mask.bool(),
                 class_name=new_mask_dict.labels[tracking_id].class_name)
@@ -190,24 +190,6 @@ class NewMaskDictionary:
 
     def get_target_logit(self, instance_id):
         return self.labels[instance_id].logit
-
-    def save_empty_mask_and_json(self, mask_data_dir, json_data_dir, image_name_list=None):
-        mask_img = torch.zeros((self.mask_height, self.mask_width))
-        if image_name_list:
-            for image_base_name in image_name_list:
-                image_base_name = image_base_name.split(".")[0]+".npy"
-                mask_name = "mask_"+image_base_name
-                np.save(os.path.join(mask_data_dir, mask_name), mask_img.numpy().astype(np.uint16))
-
-                json_data_path = os.path.join(json_data_dir, mask_name.replace(".npy", ".json"))
-                print("save_empty_mask_and_json", json_data_path)
-                self.to_json(json_data_path)
-        else:
-            np.save(os.path.join(mask_data_dir, self.mask_name), mask_img.numpy().astype(np.uint16))
-            json_data_path = os.path.join(json_data_dir, self.mask_name.replace(".npy", ".json"))
-            print("save_empty_mask_and_json", json_data_path)
-            self.to_json(json_data_path)
-
 
     def to_dict(self):
         return {
@@ -229,14 +211,14 @@ class NewMaskDictionary:
             self.mask_height = data["mask_height"]
             self.mask_width = data["mask_width"]
             self.promote_type = data["promote_type"]
-            self.labels = {int(k): ObjectInfo(**v) for k, v in data["labels"].items()}
+            self.labels = {int(k): MaskObject(**v) for k, v in data["labels"].items()}
         return self
 
 
 
 
 @dataclass
-class ObjectInfo:
+class MaskObject:
     instance_id:int = 0
     mask: any = None
     class_name:str = ""
