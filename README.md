@@ -1,4 +1,4 @@
-# Grounded SAM 2: Ground and Track Anything in Videos
+# THIS IS AN UPDATED VERSION OF GROUNDED-SAM THAT EVALUATES THE VIDEO IN BOTH A FORWARD PASS AND BACKWARD PASS
 
 **[IDEA-Research](https://github.com/idea-research)**
 

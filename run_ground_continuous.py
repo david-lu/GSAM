@@ -160,7 +160,7 @@ def track_object_in_video(text_prompt: str, step: int = 12, reverse: bool = Fals
         # Returns and updates the count of unique objects tracked so far
         new_mask_dict = copy.deepcopy(sam2_masks)
         objects_count = new_mask_dict.new_update_masks(
-            tracking_annotation_dict=mask_dict,
+            new_mask_dict=mask_dict,
             iou_threshold=0.8,
             objects_count=objects_count)
         mask_dict = new_mask_dict

@@ -32,8 +32,7 @@ for video in "$INPUT_DIR"/*; do
         continue
     fi
 
-    echo "[INFO] Processing: $output_file"
-    echo "        Output: $output_file"
+    echo "[INFO] Processing: $output_file Output: $output_file"
     python3 "$MASK_SCRIPT" --input "$video" --output "$output_file"
     if [ $? -eq 0 ]; then
         echo "[INFO] Finished processing $filename"
